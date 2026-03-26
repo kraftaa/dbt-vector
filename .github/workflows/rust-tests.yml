@@ -16,6 +16,16 @@ jobs:
       - name: Install system deps
         run: sudo apt-get update && sudo apt-get install -y python3-dev libssl-dev pkg-config build-essential
 
+      - name: Export Python build vars
+        run: |
+          PYTHON_BIN=$(python3 -c "import sys; print(sys.executable)")
+          PYTHON_LIBDIR=$(python3 -c "import sysconfig; print(sysconfig.get_config_var('LIBDIR'))")
+          PYTHON_INCLUDEDIR=$(python3 -c "import sysconfig; print(sysconfig.get_path('include'))")
+          echo "PYO3_PYTHON=${PYTHON_BIN}" >> "$GITHUB_ENV"
+          echo "PYO3_LIB_DIR=${PYTHON_LIBDIR}" >> "$GITHUB_ENV"
+          echo "PYO3_INCLUDE_DIR=${PYTHON_INCLUDEDIR}" >> "$GITHUB_ENV"
+          echo "LD_LIBRARY_PATH=${PYTHON_LIBDIR}:${LD_LIBRARY_PATH}" >> "$GITHUB_ENV"
+
       - name: Cache cargo
         uses: actions/cache@v4
         with:
@@ -29,8 +39,6 @@ jobs:
 
       - name: Run cargo tests
         working-directory: rust/embedding_engine
-        env:
-          PYO3_PYTHON: python3
         run: |
           rm -rf target
           cargo test -q
