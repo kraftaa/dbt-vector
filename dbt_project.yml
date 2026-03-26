@@ -1,0 +1,19 @@
+name: dbt_vectors
+version: 0.0.1
+config-version: 2
+description: "Prototype dbt package adding a vector_index materialization"
+
+# Expose macros/materializations to downstream projects via packages.yml
+macro-paths: ["macros"]
+
+# Minimal profile stub for local dev; downstream projects override profile/target.
+profile: default
+
+models:
+  dbt_vectors:
+    +materialized: table
+
+vars:
+  dbt_vectors:
+    default_vector_db: pgvector
+

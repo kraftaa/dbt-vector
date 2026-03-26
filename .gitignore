@@ -1,0 +1,9 @@
+/target
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.so
+.env
+.venv
+.DS_Store

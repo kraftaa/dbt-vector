@@ -21,11 +21,11 @@
 - `rust/embedding_engine` – Rust crate stub for the high-performance embedding engine.
 
 ## Next steps (MVP path)
-1. Implement Rust embedding engine with OpenAI + optional local model, expose PyO3 bindings.
-2. Fill `dbt_vectors.embedding` with batching/retry/backoff and adapter-specific upsert utilities.
-3. Finish `vector_index` materialization logic (create index, incremental upsert, freshness logging).
-4. Add tests: unit (Python + Rust) and dbt integration (pgvector target container).
-5. Publish as a dbt package + PyPI package, add docs + quickstart.
+1. Implement Rust embedding engine with OpenAI + optional local model, expose PyO3 bindings. ✅ (stubbed to OpenAI API; needs compile and key)
+2. Fill `dbt_vectors.embedding` with batching/retry/backoff and adapter-specific upsert utilities. ✅ (PyO3 + Python fallback)
+3. Finish `vector_index` materialization logic (create index, incremental upsert, freshness logging). ✅ (pgvector prototype; add Pinecone/Qdrant next)
+4. Add tests: unit (Python + Rust) and dbt integration (pgvector target container). ⏳
+5. Publish as a dbt package + PyPI package, add docs + quickstart. ⏳
 
 ## Example model (goal state)
 ```sql
@@ -53,3 +53,15 @@ Running `dbt build --select vector_knowledge_base` should:
 - upsert to pgvector (or Pinecone/Qdrant via adapters)
 - emit metrics (processed, failed, latency) and freshness tests
 ```
+
+## Local integration harness (pgvector)
+```
+docker-compose up -d postgres
+OPENAI_API_KEY=sk-... dbt --project-dir examples --profiles-dir examples run --select vector_knowledge_base
+```
+
+The example profile points at the local Postgres/pgvector container (user/password/db: `dbt`). Build the Rust extension first if you want the PyO3 path:
+```
+cd rust/embedding_engine && maturin develop
+```
+If the Rust module is not built, the Python fallback uses the `openai` package (install via `pip install 'dbt-vectors[openai]'`).
