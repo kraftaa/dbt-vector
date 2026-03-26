@@ -9,22 +9,16 @@ static TEST_LOCK: Lazy<Mutex<()>> = Lazy::new(|| Mutex::new(()));
 
 #[test]
 fn chunks_requests_to_max_batch() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     env::remove_var("OPENAI_API_KEY");
     env::remove_var("OPENAI_EMBED_URL");
     let server = MockServer::start();
 
-    let m1 = server.mock(|when, then| {
+    let m_all = server.mock(|when, then| {
         when.method(POST).path("/v1/embeddings");
         then.status(200).json_body(serde_json::json!({
             "data": (0..128).map(|_| serde_json::json!({"embedding": [0.1, 0.2]})).collect::<Vec<_>>()
-        }));
-    });
-    let m2 = server.mock(|when, then| {
-        when.method(POST).path("/v1/embeddings");
-        then.status(200).json_body(serde_json::json!({
-            "data": (0..128).map(|_| serde_json::json!({"embedding": [0.3, 0.4]})).collect::<Vec<_>>()
-        }));
+        })).expect(2);
     });
 
     env::set_var("OPENAI_API_KEY", "test-key");
@@ -37,23 +31,26 @@ fn chunks_requests_to_max_batch() {
     assert!(res.is_ok());
     let embeddings = res.unwrap();
     assert_eq!(embeddings.len(), 256);
-    m1.assert();
-    m2.assert();
+    m_all.assert();
 }
 
 #[test]
 fn retries_on_429_then_succeeds() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     env::remove_var("OPENAI_API_KEY");
     env::remove_var("OPENAI_EMBED_URL");
     let server = MockServer::start();
 
     let _m429 = server.mock(|when, then| {
-        when.method(POST).path("/v1/embeddings");
+        when.method(POST)
+            .path("/v1/embeddings")
+            .header("X-Retry-Attempt", "0");
         then.status(429).body("rate limited");
     });
     let m200 = server.mock(|when, then| {
-        when.method(POST).path("/v1/embeddings");
+        when.method(POST)
+            .path("/v1/embeddings")
+            .header("X-Retry-Attempt", "1");
         then.status(200).json_body(serde_json::json!({
             "data": [ {"embedding": [0.5, 0.6]} ]
         }));

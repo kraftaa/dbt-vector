@@ -58,6 +58,7 @@ fn send_with_retry(body: &serde_json::Value, client: &Client) -> Result<reqwest:
     loop {
         let resp = client
             .post(&url)
+            .header("X-Retry-Attempt", attempt.to_string())
             .json(body)
             .send()
             .map_err(|e| EmbedError::Http(e.to_string()))?;
