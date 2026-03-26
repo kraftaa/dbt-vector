@@ -3,16 +3,15 @@ use httpmock::Method::POST;
 use httpmock::MockServer;
 use once_cell::sync::Lazy;
 use std::env;
+use std::sync::Mutex;
 
-static _LOCK: Lazy<()> = Lazy::new(|| {
-    // ensure env isolation per test run
-    env::remove_var("OPENAI_API_KEY");
-    env::remove_var("OPENAI_EMBED_URL");
-});
+static TEST_LOCK: Lazy<Mutex<()>> = Lazy::new(|| Mutex::new(()));
 
 #[test]
 fn chunks_requests_to_max_batch() {
-    let _guard = &_LOCK;
+    let _guard = TEST_LOCK.lock().unwrap();
+    env::remove_var("OPENAI_API_KEY");
+    env::remove_var("OPENAI_EMBED_URL");
     let server = MockServer::start();
 
     let m1 = server.mock(|when, then| {
@@ -44,7 +43,9 @@ fn chunks_requests_to_max_batch() {
 
 #[test]
 fn retries_on_429_then_succeeds() {
-    let _guard = &_LOCK;
+    let _guard = TEST_LOCK.lock().unwrap();
+    env::remove_var("OPENAI_API_KEY");
+    env::remove_var("OPENAI_EMBED_URL");
     let server = MockServer::start();
 
     let _m429 = server.mock(|when, then| {
