@@ -20,7 +20,6 @@ fn chunks_requests_to_max_batch() {
             "data": (0..128).map(|_| serde_json::json!({"embedding": [0.1, 0.2]})).collect::<Vec<_>>()
         }));
     });
-    m_all.expect(2);
 
     env::set_var("OPENAI_API_KEY", "test-key");
     env::set_var("OPENAI_EMBED_URL", format!("{}{}", server.base_url(), "/v1/embeddings"));
@@ -32,6 +31,7 @@ fn chunks_requests_to_max_batch() {
     assert!(res.is_ok());
     let embeddings = res.unwrap();
     assert_eq!(embeddings.len(), 256);
+    assert_eq!(m_all.hits(), 2);
     m_all.assert();
 }
 
@@ -64,6 +64,6 @@ fn retries_on_429_then_succeeds() {
     let res = embed_batch(texts, Some("dummy".to_string()));
     assert!(res.is_ok());
     assert_eq!(res.unwrap().len(), 1);
-    // 429 may or may not be hit depending on retry timing; ensure success call hit once.
+    assert_eq!(m200.hits(), 1);
     m200.assert();
 }
