@@ -18,8 +18,9 @@ fn chunks_requests_to_max_batch() {
         when.method(POST).path("/v1/embeddings");
         then.status(200).json_body(serde_json::json!({
             "data": (0..128).map(|_| serde_json::json!({"embedding": [0.1, 0.2]})).collect::<Vec<_>>()
-        })).expect(2);
+        }));
     });
+    m_all.expect(2);
 
     env::set_var("OPENAI_API_KEY", "test-key");
     env::set_var("OPENAI_EMBED_URL", format!("{}{}", server.base_url(), "/v1/embeddings"));
