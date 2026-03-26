@@ -26,6 +26,11 @@ jobs:
           echo "PYO3_INCLUDE_DIR=${PYTHON_INCLUDEDIR}" >> "$GITHUB_ENV"
           echo "LD_LIBRARY_PATH=${PYTHON_LIBDIR}:${LD_LIBRARY_PATH}" >> "$GITHUB_ENV"
 
+      - name: Export Python link flags for PyO3
+        run: |
+          PY_LDFLAGS=$(python3-config --ldflags --embed 2>/dev/null || python3-config --ldflags)
+          echo "RUSTFLAGS=${PY_LDFLAGS} ${RUSTFLAGS}" >> "$GITHUB_ENV"
+
       - name: Cache cargo
         uses: actions/cache@v4
         with:
