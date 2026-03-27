@@ -25,7 +25,10 @@ fn chunks_requests_to_max_batch() {
     });
 
     env::set_var("OPENAI_API_KEY", "test-key");
-    env::set_var("OPENAI_EMBED_URL", format!("{}{}", server.base_url(), "/v1/embeddings"));
+    env::set_var(
+        "OPENAI_EMBED_URL",
+        format!("{}{}", server.base_url(), "/v1/embeddings"),
+    );
 
     let texts: Vec<String> = (0..256).map(|i| format!("doc-{}", i)).collect();
 
@@ -62,7 +65,10 @@ fn retries_on_429_then_succeeds() {
     });
 
     env::set_var("OPENAI_API_KEY", "test-key");
-    env::set_var("OPENAI_EMBED_URL", format!("{}{}", server.base_url(), "/v1/embeddings"));
+    env::set_var(
+        "OPENAI_EMBED_URL",
+        format!("{}{}", server.base_url(), "/v1/embeddings"),
+    );
 
     let texts = vec!["one".to_string()];
     let res = embed_batch(texts, Some("dummy".to_string()));

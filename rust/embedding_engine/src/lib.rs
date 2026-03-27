@@ -74,7 +74,8 @@ fn http_client(api_key: &str, timeout_secs: u64) -> Result<Client, EmbedError> {
     let mut headers = HeaderMap::new();
     headers.insert(
         AUTHORIZATION,
-        HeaderValue::from_str(&format!("Bearer {}", api_key)).map_err(|e| EmbedError::Http(e.to_string()))?,
+        HeaderValue::from_str(&format!("Bearer {}", api_key))
+            .map_err(|e| EmbedError::Http(e.to_string()))?,
     );
     headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
     Client::builder()
@@ -143,7 +144,7 @@ fn embed_batch_internal(
             model: &cfg.model,
             input: chunk,
         })
-            .map_err(|e| EmbedError::Parse(e.to_string()))?;
+        .map_err(|e| EmbedError::Parse(e.to_string()))?;
         let resp = send_with_retry(&body, client, cfg.retries, &mut rng)?;
         let parsed: EmbedResponse = resp.json().map_err(|e| EmbedError::Parse(e.to_string()))?;
         all_embeddings.extend(parsed.data.into_iter().map(|item| item.embedding));
