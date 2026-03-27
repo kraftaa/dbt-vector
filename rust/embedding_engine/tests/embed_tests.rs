@@ -31,8 +31,7 @@ fn chunks_requests_to_max_batch() {
     assert!(res.is_ok());
     let embeddings = res.unwrap();
     assert_eq!(embeddings.len(), 256);
-    assert!(m_all.hits() >= 2); // tolerate extra retry in flaky envs
-    m_all.assert();
+    m_all.assert_hits(2);
 }
 
 #[test]
