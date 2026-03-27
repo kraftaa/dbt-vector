@@ -65,3 +65,38 @@ The example profile points at the local Postgres/pgvector container (user/passwo
 cd rust/embedding_engine && maturin develop
 ```
 If the Rust module is not built, the Python fallback uses the `openai` package (install via `pip install 'dbt-vectors[openai]'`).
+
+## Rust embedding engine: runtime config & testing
+
+Key env vars (defaults in parentheses):
+- `OPENAI_API_KEY` (required): API key used for requests.
+- `OPENAI_EMBED_URL` (`https://api.openai.com/v1/embeddings`): override for self-hosted/endpoints.
+- `EMBED_MODEL` (`text-embedding-3-small`): model name passed to the API.
+- `EMBED_MAX_BATCH` (`128`): chunk size for requests; texts are split into chunks of this size.
+- `EMBED_RETRIES` (`3`): max attempts on 429/5xx with exponential backoff + jitter.
+- `EMBED_TIMEOUT_SECS` (`60`): per-request timeout.
+
+Run tests on macOS (Homebrew Python 3.12):
+```bash
+export PYO3_PYTHON=$(brew --prefix python@3.12)/bin/python3.12
+export PYO3_LIB_DIR=$(brew --prefix python@3.12)/Frameworks/Python.framework/Versions/3.12/lib
+export PYO3_INCLUDE_DIR=$(brew --prefix python@3.12)/Frameworks/Python.framework/Versions/3.12/include/python3.12
+export MACOSX_DEPLOYMENT_TARGET=12.0
+export RUSTFLAGS="-L${PYO3_LIB_DIR} -lpython3.12 -Wl,-rpath,${PYO3_LIB_DIR}"
+cd rust/embedding_engine
+cargo clean
+cargo test -q
+```
+
+Run tests in Docker (quiet, no local toolchain needed):
+```bash
+docker run --rm --platform linux/amd64 \
+  -v "$PWD":/workspace \
+  -w /workspace/rust/embedding_engine \
+  rustlang/rust:nightly-slim \
+  bash -lc 'export PATH=/usr/local/cargo/bin:$PATH DEBIAN_FRONTEND=noninteractive \
+            MALLOC_CONF="abort:false,prof:false,background_thread:false,stats_print:false" && \
+            apt-get update >/dev/null && \
+            apt-get install -y python3 python3-dev pkg-config libssl-dev >/dev/null && \
+            cargo test -q'
+```
