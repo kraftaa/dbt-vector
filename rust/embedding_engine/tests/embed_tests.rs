@@ -15,6 +15,7 @@ fn chunks_requests_to_max_batch() {
     env::remove_var("EMBED_MAX_BATCH");
     env::set_var("EMBED_MAX_BATCH", "128");
     env::set_var("EMBED_RETRIES", "1");
+    env::set_var("EMBED_PROVIDER", "openai");
     let server = MockServer::start();
 
     let m_all = server.mock(|when, then| {
@@ -47,6 +48,7 @@ fn retries_on_429_then_succeeds() {
     env::remove_var("OPENAI_EMBED_URL");
     env::remove_var("EMBED_RETRIES");
     env::set_var("EMBED_RETRIES", "2");
+    env::set_var("EMBED_PROVIDER", "openai");
     let server = MockServer::start();
 
     let _m429 = server.mock(|when, then| {

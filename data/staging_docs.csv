@@ -1,0 +1,21 @@
+doc_id,source,body,created_at
+doc-001,kb,"Getting started with account creation and email verification.",2024-01-01
+doc-002,kb,"How to reset your password and enable MFA.",2024-01-02
+doc-003,kb,"Billing FAQs: invoices, refunds, and payment methods.",2024-01-03
+doc-004,kb,"Usage limits, rate limiting, and how to handle 429 errors.",2024-01-04
+doc-005,kb,"API quickstart: authenticating with API keys and bearer tokens.",2024-01-05
+doc-006,kb,"Webhook setup: event types, retries, and signature validation.",2024-01-06
+doc-007,kb,"Data retention policy and GDPR/CCPA considerations.",2024-01-07
+doc-008,kb,"Exporting your data as CSV and JSON via the admin console.",2024-01-08
+doc-009,kb,"Team management: roles, permissions, and audit logs.",2024-01-09
+doc-010,kb,"Integrating with SSO providers (Okta, Azure AD, Google).",2024-01-10
+doc-011,kb,"Error troubleshooting: common HTTP status codes and fixes.",2024-01-11
+doc-012,kb,"Release notes for version 1.2.3 with performance improvements.",2024-01-12
+doc-013,kb,"How to create and share dashboards with teammates.",2024-01-13
+doc-014,kb,"Building analytics with our SQL API and pagination tips.",2024-01-14
+doc-015,kb,"Security best practices for rotating credentials regularly.",2024-01-15
+doc-016,kb,"Deploying to production: checklist and rollback guidance.",2024-01-16
+doc-017,kb,"Support escalation playbook and expected SLA timelines.",2024-01-17
+doc-018,kb,"Mobile SDK integration guide for iOS and Android apps.",2024-01-18
+doc-019,kb,"Rate card: metering units, overages, and discounts.",2024-01-19
+doc-020,kb,"Architectural overview: services, queues, and background jobs.",2024-01-20

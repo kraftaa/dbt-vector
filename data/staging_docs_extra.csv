@@ -1,0 +1,11 @@
+doc_id,source,body,created_at
+faq-001,kb,How to invite teammates and manage workspace roles?,2024-02-01
+faq-002,kb,Where can I rotate API keys and set expiration reminders?,2024-02-02
+faq-003,kb,How to export all project data as JSON or CSV?,2024-02-03
+faq-004,kb,What IP ranges should I allowlist for outbound webhooks?,2024-02-04
+faq-005,kb,How to configure SSO with Okta including SCIM provisioning?,2024-02-05
+faq-006,kb,How do usage quotas reset and where do I see current usage?,2024-02-06
+faq-007,kb,How to debug 401 errors when calling the API?,2024-02-07
+faq-008,kb,What’s the retry policy and backoff for outbound webhooks?,2024-02-08
+faq-009,kb,How to request a data export or deletion for a tenant?,2024-02-09
+faq-010,kb,How to enable audit logging and where are logs stored?,2024-02-10

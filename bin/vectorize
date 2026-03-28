@@ -1,0 +1,85 @@
+#!/usr/bin/env bash
+# One-shot vectorization: run dbt model and immediately fill embeddings.
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+
+DBT_CMD="${DBT:-dbt}"
+PROFILE_DIR="${PROFILE_DIR:-${ROOT_DIR}}"
+PROJECT_DIR="${PROJECT_DIR:-${ROOT_DIR}}"
+SELECT_MODEL="${SELECT_MODEL:-vector_knowledge_base}"
+INDEX_NAME="${INDEX_NAME:-knowledge_base}"
+SCHEMA="${SCHEMA:-public}"
+PROFILE_NAME="${PROFILE:-default}"
+TARGET_NAME="${TARGET:-}"
+PROFILE_FILE="${PROFILE_FILE:-${PROFILE_DIR}/profiles.yml}"
+PYTHON_BIN="${PYTHON_BIN:-python3}"
+
+# Embedding settings
+EMBED_PROVIDER="${EMBED_PROVIDER:-local}"
+EMBED_MODEL="${EMBED_MODEL:-sentence-transformers/all-MiniLM-L6-v2}"
+
+# If PG* vars are unset, pull them from profiles.yml (postgres output)
+if [[ -z "${PGHOST:-}" || -z "${PGPORT:-}" || -z "${PGUSER:-}" || -z "${PGDATABASE:-}" ]]; then
+  if [[ -f "${PROFILE_FILE}" ]]; then
+    if ! command -v "${PYTHON_BIN}" >/dev/null 2>&1; then
+      PYTHON_BIN="python"
+    fi
+    if command -v "${PYTHON_BIN}" >/dev/null 2>&1; then
+      profile_exports="$(
+        "${PYTHON_BIN}" - <<'PY' "${PROFILE_FILE}" "${PROFILE_NAME}" "${TARGET_NAME}" 2>/dev/null || true
+import os, shlex, sys
+import yaml
+profile_file, profile_name, target_name = sys.argv[1:4]
+with open(profile_file, "r") as f:
+    data = yaml.safe_load(f) or {}
+profile = data.get(profile_name, {})
+target = target_name or profile.get("target")
+outputs = profile.get("outputs", {}) or {}
+if not target:
+    # fallback to first output
+    target = next(iter(outputs.keys()), None)
+cfg = outputs.get(target, {}) if target else {}
+if cfg.get("type") != "postgres":
+    sys.exit(0)
+def emit_if_missing(k, v):
+    if v is None:
+        return
+    if os.environ.get(k):
+        return
+    print(f"{k}={shlex.quote(str(v))}")
+emit_if_missing("PGHOST", cfg.get("host"))
+emit_if_missing("PGPORT", cfg.get("port"))
+emit_if_missing("PGUSER", cfg.get("user"))
+emit_if_missing("PGPASSWORD", cfg.get("password"))
+emit_if_missing("PGDATABASE", cfg.get("dbname"))
+emit_if_missing("SCHEMA", cfg.get("schema"))
+PY
+      )"
+      if [[ -n "${profile_exports}" ]]; then
+        eval "${profile_exports}"
+      fi
+    fi
+  fi
+fi
+
+echo "[vectorize] running dbt model ${SELECT_MODEL} (provider=${EMBED_PROVIDER}, model=${EMBED_MODEL})"
+EMBED_PROVIDER="${EMBED_PROVIDER}" EMBED_MODEL="${EMBED_MODEL}" \
+  "${DBT_CMD}" run --no-partial-parse --profiles-dir "${PROFILE_DIR}" --project-dir "${PROJECT_DIR}" --select "${SELECT_MODEL}"
+
+echo "[vectorize] generating embeddings via Rust into ${SCHEMA}.${INDEX_NAME}"
+(
+  cd "${ROOT_DIR}/rust/embedding_engine"
+  PGHOST="${PGHOST:-localhost}" \
+  PGPORT="${PGPORT:-5432}" \
+  PGUSER="${PGUSER:-postgres}" \
+  PGPASSWORD="${PGPASSWORD:-}" \
+  PGDATABASE="${PGDATABASE:-postgres}" \
+  SCHEMA="${SCHEMA}" INDEX_NAME="${INDEX_NAME}" \
+  EMBED_PROVIDER="${EMBED_PROVIDER}" \
+  EMBED_MODEL="${EMBED_MODEL}" EMBED_DIMS="${EMBED_DIMS:-1536}" \
+  cargo run --quiet --bin pg_embedder --release --
+)
+
+echo "[vectorize] done."

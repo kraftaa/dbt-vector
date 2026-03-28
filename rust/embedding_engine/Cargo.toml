@@ -7,15 +7,26 @@ license = "Apache-2.0"
 
 [lib]
 name = "embedding_engine"
-crate-type = ["cdylib", "rlib"]
+crate-type = ["rlib"]
 
 [dependencies]
-pyo3 = { version = "0.26", features = ["extension-module"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 reqwest = { version = "0.11", features = ["json", "gzip", "brotli", "rustls-tls", "blocking"] }
 thiserror = "1"
 rand = "0.8"
+blake3 = "1"
+# Bedrock + AWS
+aws-config = "1"
+aws-sdk-bedrockruntime = "1"
+tokio = { version = "1", features = ["rt-multi-thread"] }
+postgres = "0.19"
+pgvector = { version = "0.4", features = ["postgres"] }
+# Local ONNX inference (via ort crate)
+ort = { version = "2.0.0-rc.12", features = ["ndarray"] }
+ndarray = { version = "0.17", features = ["std"] }
+tokenizers = "0.15"
+num_cpus = "1"
 
 [dev-dependencies]
 httpmock = "0.6"

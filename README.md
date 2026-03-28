@@ -4,37 +4,36 @@
 
 ## Why
 - dbt today only materializes SQL artifacts (table, view, incremental, ephemeral).
-- Vector pipelines require SQL + embeddings + upsert to a vector DB; teams currently stitch that with ad‑hoc Python scripts.
+- Vector pipelines require SQL + embeddings + upsert to a vector DB; teams currently stitch that with ad-hoc external scripts.
 - A custom `vector_index` materialization can run inside `dbt build`, generating embeddings, handling incremental logic, and writing to pgvector/Pinecone/Qdrant.
 
 ## What’s here
-- **dbt package skeleton** with a `vector_index` materialization stub and dispatchable macros.
-- **Python bridge** (`dbt_vectors.embedding`) intended to wrap a Rust embedding engine via PyO3.
-- **Rust crate stub** (`rust/embedding_engine`) ready for OpenAI or local model clients and a batched embedding API.
-- **Examples** to show how a model might be defined once code is filled in.
+- **dbt package skeleton** with a `vector_index` materialization and dispatchable macros (pgvector working).
+- **Rust embedder** (`rust/embedding_engine`) that can generate embeddings via OpenAI, Amazon Bedrock, or a local ONNX model (no Python needed).
+- **`./bin/vectorize` runner**: orchestrates `dbt run` for the model and then calls the Rust embedder to write embeddings into Postgres/pgvector.
+- **Examples** to show how a model is defined and run.
 
 ## Repo layout
 - `dbt_project.yml` – declares this as a dbt package and exposes macros.
 - `macros/materializations/vector_index.sql` – Jinja materialization scaffold (pgvector first, adapters dispatchable).
-- `macros/embedding_generate.sql` – macro that calls the Python bridge (swappable per adapter/model).
-- `python/dbt_vectors` – Python package placeholder for dbt-run-time helpers and PyO3 bindings.
-- `rust/embedding_engine` – Rust crate stub for the high-performance embedding engine.
+- `macros/adapters/vector_index_pgvector.sql` – pgvector adapter macro that creates/loads the target table.
+- `bin/vectorize` – orchestration command that runs dbt and then Rust embedding.
+- `rust/embedding_engine` – Rust crate and `pg_embedder` binary used for embedding generation/upsert.
 
 ## Next steps (MVP path)
-1. Implement Rust embedding engine with OpenAI + optional local model, expose PyO3 bindings. ✅ (stubbed to OpenAI API; needs compile and key)
-2. Fill `dbt_vectors.embedding` with batching/retry/backoff and adapter-specific upsert utilities. ✅ (PyO3 + Python fallback)
-3. Finish `vector_index` materialization logic (create index, incremental upsert, freshness logging). ✅ (pgvector prototype; add Pinecone/Qdrant next)
-4. Add tests: unit (Python + Rust) and dbt integration (pgvector target container). ⏳
-5. Publish as a dbt package + PyPI package, add docs + quickstart. ⏳
+1. Harden Rust embedding provider support (OpenAI/Bedrock/local ONNX) with better diagnostics and retries. ⏳
+2. Expand adapter macros beyond pgvector (Pinecone/Qdrant). ⏳
+3. Add end-to-end integration tests for dbt + pgvector + `pg_embedder`. ⏳
+4. Publish package docs and a reproducible quickstart. ⏳
 
-## Example model (goal state)
+## Example model (current)
 ```sql
 {{ config(
     materialized='vector_index',
     vector_db='pgvector',
     index_name='knowledge_base',
     embedding_model='text-embedding-3-small',
-    dimensions=1536,
+    dimensions=(env_var('EMBED_DIMS', 1536) | int),
     metadata_columns=['source', 'created_at', 'doc_id']
 ) }}
 
@@ -47,56 +46,54 @@ from {{ ref('staging_documents') }}
 where is_active = true
 ```
 
-Running `dbt build --select vector_knowledge_base` should:
+Running `./bin/vectorize --select vector_knowledge_base` should:
 - fetch incremental rows
 - generate embeddings via Rust engine
 - upsert to pgvector (or Pinecone/Qdrant via adapters)
 - emit metrics (processed, failed, latency) and freshness tests
-```
 
-## Local integration harness (pgvector)
+## Run locally (pgvector + Rust embedder)
+
+1) Start Postgres/pgvector (if you use docker-compose):
 ```
 docker-compose up -d postgres
-OPENAI_API_KEY=sk-... dbt --project-dir examples --profiles-dir examples run --select vector_knowledge_base
 ```
 
-The example profile points at the local Postgres/pgvector container (user/password/db: `dbt`). Build the Rust extension first if you want the PyO3 path:
+2) Choose a provider and matching dimensions:
 ```
-cd rust/embedding_engine && maturin develop
-```
-If the Rust module is not built, the Python fallback uses the `openai` package (install via `pip install 'dbt-vectors[openai]'`).
+# Local ONNX (MiniLM, 384 dims)
+EMBED_PROVIDER=local
+EMBED_MODEL=sentence-transformers/all-MiniLM-L6-v2
+EMBED_LOCAL_MODEL_PATH=$PWD/ml_model   # contains model.onnx + tokenizer.json
+EMBED_DIMS=384
 
-## Rust embedding engine: runtime config & testing
+# OpenAI
+EMBED_PROVIDER=openai
+EMBED_MODEL=text-embedding-3-small
+EMBED_DIMS=1536   # or a smaller dim if you request it from OpenAI
 
-Key env vars (defaults in parentheses):
-- `OPENAI_API_KEY` (required): API key used for requests.
-- `OPENAI_EMBED_URL` (`https://api.openai.com/v1/embeddings`): override for self-hosted/endpoints.
-- `EMBED_MODEL` (`text-embedding-3-small`): model name passed to the API.
-- `EMBED_MAX_BATCH` (`128`): chunk size for requests; texts are split into chunks of this size.
-- `EMBED_RETRIES` (`3`): max attempts on 429/5xx with exponential backoff + jitter.
-- `EMBED_TIMEOUT_SECS` (`60`): per-request timeout.
-
-Run tests on macOS (Homebrew Python 3.12):
-```bash
-export PYO3_PYTHON=$(brew --prefix python@3.12)/bin/python3.12
-export PYO3_LIB_DIR=$(brew --prefix python@3.12)/Frameworks/Python.framework/Versions/3.12/lib
-export PYO3_INCLUDE_DIR=$(brew --prefix python@3.12)/Frameworks/Python.framework/Versions/3.12/include/python3.12
-export MACOSX_DEPLOYMENT_TARGET=12.0
-export RUSTFLAGS="-L${PYO3_LIB_DIR} -lpython3.12 -Wl,-rpath,${PYO3_LIB_DIR}"
-cd rust/embedding_engine
-cargo clean
-cargo test -q
+# Bedrock Titan v2 (defaults)
+EMBED_PROVIDER=bedrock
+EMBED_MODEL=amazon.titan-embed-text-v2:0
+EMBED_DIMS=1024   # or 512/256 if you override
 ```
 
-Run tests in Docker (quiet, no local toolchain needed):
-```bash
-docker run --rm --platform linux/amd64 \
-  -v "$PWD":/workspace \
-  -w /workspace/rust/embedding_engine \
-  rustlang/rust:nightly-slim \
-  bash -lc 'export PATH=/usr/local/cargo/bin:$PATH DEBIAN_FRONTEND=noninteractive \
-            MALLOC_CONF="abort:false,prof:false,background_thread:false,stats_print:false" && \
-            apt-get update >/dev/null && \
-            apt-get install -y python3 python3-dev pkg-config libssl-dev >/dev/null && \
-            cargo test -q'
+3) Run vectorization (dbt model + embedding upsert):
 ```
+PGHOST=localhost PGPORT=5432 PGUSER=postgres PGDATABASE=postgres \
+EMBED_PROVIDER=... EMBED_MODEL=... EMBED_DIMS=... \
+./bin/vectorize --select vector_knowledge_base
+```
+
+### Supported embedding dimensions (set `EMBED_DIMS` to match)
+- OpenAI `text-embedding-3-small`: 1536 (can request smaller via API parameter)
+- OpenAI `text-embedding-3-large`: 3072 (can request smaller)
+- Bedrock Titan embed text v2: 1024 (or 512/256)
+- Bedrock Titan embed text v1: 1024 (or 512/256)
+- Bedrock Cohere Embed v4: 1536 (or 1024/512/256)
+- Local MiniLM (all-MiniLM-L6-v2 ONNX): 384
+
+## Notes
+- The Rust embedder is Python-free.
+- Keep your Postgres `vector` column dimension aligned with `EMBED_DIMS`.
+- IVFFLAT indexes warn on very small datasets; that’s expected. Rebuild after you have more rows.
