@@ -1,9 +1,12 @@
 from setuptools import setup
 
 try:
-    from wheel.bdist_wheel import bdist_wheel as _bdist_wheel
+    from setuptools.command.bdist_wheel import bdist_wheel as _bdist_wheel
 except Exception:
-    _bdist_wheel = None
+    try:
+        from wheel.bdist_wheel import bdist_wheel as _bdist_wheel
+    except Exception:
+        _bdist_wheel = None
 
 
 if _bdist_wheel is not None:
