@@ -62,6 +62,8 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/v')
     needs: build-wheels
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - name: Download wheel artifacts
         uses: actions/download-artifact@v4
@@ -78,3 +80,24 @@ jobs:
         with:
           files: dist/*
 
+  publish-pypi:
+    name: Publish to PyPI
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build-wheels
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    environment: pypi
+    steps:
+      - name: Download wheel artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: dist-*
+          merge-multiple: true
+
+      - name: Publish package to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist
