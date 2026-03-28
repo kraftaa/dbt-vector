@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dbt-vectorize"
+version = "0.1.0"
+description = "dbt + Rust vectorization runner for pgvector"
+readme = "README.md"
+requires-python = ">=3.9"
+authors = [
+  { name = "Maria Dubyaga", email = "kraftaa@gmail.com" }
+]
+dependencies = [
+  "PyYAML>=6.0",
+]
+classifiers = [
+  "Environment :: Console",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: Apache Software License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Rust",
+  "Topic :: Database",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+[project.scripts]
+dbt-vectorize = "dbt_vectorize.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/kraftaa/dbt-vector"
+Repository = "https://github.com/kraftaa/dbt-vector"
+
+[tool.setuptools]
+packages = ["dbt_vectorize"]
+include-package-data = true
+
+[tool.setuptools.package-data]
+dbt_vectorize = ["bin/*"]

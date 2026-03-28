@@ -13,6 +13,21 @@
 - **`./bin/vectorize` runner**: orchestrates `dbt run` for the model and then calls the Rust embedder to write embeddings into Postgres/pgvector.
 - **Examples** to show how a model is defined and run.
 
+## Prerequisites
+
+`dbt-vectorize` does not vendor dbt. It uses whatever dbt binary you point it to (`DBT=...`) or find on PATH.
+
+Verify your existing dbt + adapter:
+```bash
+dbt --version
+```
+You should see a plugin like `postgres` under "Plugins".
+
+If you do not have dbt + postgres adapter installed:
+```bash
+python -m pip install "dbt-core~=1.9" "dbt-postgres~=1.9"
+```
+
 ## Repo layout
 - `dbt_project.yml` – declares this as a dbt package and exposes macros.
 - `macros/materializations/vector_index.sql` – Jinja materialization scaffold (pgvector first, adapters dispatchable).
@@ -52,12 +67,9 @@ Running `./bin/vectorize --select vector_knowledge_base` should:
 - upsert to pgvector (or Pinecone/Qdrant via adapters)
 - emit metrics (processed, failed, latency) and freshness tests
 
-## Run locally (pgvector + Rust embedder)
+## Run locally (preferred: existing local Postgres)
 
-1) Start Postgres/pgvector (if you use docker-compose):
-```
-docker-compose up -d postgres
-```
+1) Ensure Postgres is running and reachable (`PGHOST/PGPORT/PGUSER/PGDATABASE`).
 
 2) Choose a provider and matching dimensions:
 ```
@@ -83,6 +95,39 @@ EMBED_DIMS=1024   # or 512/256 if you override
 PGHOST=localhost PGPORT=5432 PGUSER=postgres PGDATABASE=postgres \
 EMBED_PROVIDER=... EMBED_MODEL=... EMBED_DIMS=... \
 ./bin/vectorize --select vector_knowledge_base
+```
+
+Shortcut with env file:
+```
+cp .env.vectorize.example .env.vectorize
+./bin/vectorize --select vector_knowledge_base
+```
+`bin/vectorize` auto-loads `.env.vectorize` if present. Use `VECTORIZE_ENV_FILE=/path/to/file` to load a different env file.
+
+## Optional Docker Postgres
+
+Use this only if you want a disposable local pgvector instance:
+```
+docker-compose up -d postgres
+```
+If Docker/Colima is not running, this will fail with a daemon connection error.
+
+## Build pip package (`dbt-vectorize`)
+
+Build from repo root (factorlens-style, bundles Rust binary in wheel):
+```bash
+./scripts/build_wheel_with_binary.sh
+```
+
+Artifacts will be written to `dist/`.
+Install locally:
+```bash
+python -m pip install dist/dbt_vectorize-*.whl
+```
+
+CLI entrypoint after install:
+```bash
+dbt-vectorize --select vector_knowledge_base
 ```
 
 ### Supported embedding dimensions (set `EMBED_DIMS` to match)

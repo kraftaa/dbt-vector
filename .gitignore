@@ -7,6 +7,7 @@
 *.pyd
 *.so
 .env
+.env.vectorize
 .venv
 .DS_Store
 logs/
@@ -15,3 +16,7 @@ ml_models/
 other/
 .user.yml
 profiles.yml
+dist/
+*.egg-info/
+python/local_embed.py
+scripts/embed_local.py
