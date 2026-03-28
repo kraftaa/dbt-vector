@@ -28,6 +28,16 @@ If you do not have dbt + postgres adapter installed:
 python -m pip install "dbt-core~=1.9" "dbt-postgres~=1.9"
 ```
 
+You also need pgvector available in Postgres:
+- install the extension package on the **Postgres server** (`vector.control` must exist on that server)
+- enable it in each **database** you want to use
+
+```sql
+CREATE EXTENSION IF NOT EXISTS vector;
+```
+
+(`pgvector` is the project name; the SQL extension name is `vector`.)
+
 ## Repo layout
 - `dbt_project.yml` – declares this as a dbt package and exposes macros.
 - `macros/materializations/vector_index.sql` – Jinja materialization scaffold (pgvector first, adapters dispatchable).
@@ -69,7 +79,10 @@ Running `./bin/vectorize --select vector_knowledge_base` should:
 
 ## Run locally (preferred: existing local Postgres)
 
-1) Ensure Postgres is running and reachable (`PGHOST/PGPORT/PGUSER/PGDATABASE`).
+1) Ensure Postgres is running, reachable (`PGHOST/PGPORT/PGUSER/PGDATABASE`), and has `vector` enabled:
+```sql
+CREATE EXTENSION IF NOT EXISTS vector;
+```
 
 2) Choose a provider and matching dimensions:
 ```
@@ -129,6 +142,11 @@ CLI entrypoint after install:
 ```bash
 dbt-vectorize --select vector_knowledge_base
 ```
+
+CI release wheel build (macOS arm64 + Linux x86_64):
+- workflow file: `.github/workflows/release.yml`
+- trigger manually from Actions or push a `v*` tag
+- outputs platform-specific wheels under workflow artifacts / GitHub release assets
 
 ### Supported embedding dimensions (set `EMBED_DIMS` to match)
 - OpenAI `text-embedding-3-small`: 1536 (can request smaller via API parameter)
