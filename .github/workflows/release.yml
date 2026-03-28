@@ -47,6 +47,16 @@ jobs:
           python -m pip install --upgrade pip setuptools wheel build
           ./scripts/build_wheel_with_binary.sh
 
+      - name: Repair Linux wheel for PyPI (manylinux tag)
+        if: runner.os == 'Linux'
+        run: |
+          python -m pip install --upgrade auditwheel
+          shopt -s nullglob
+          for whl in dist/*-linux_x86_64.whl; do
+            auditwheel repair "$whl" -w dist/
+            rm -f "$whl"
+          done
+
       - name: Show built artifacts
         run: ls -lh dist
 
