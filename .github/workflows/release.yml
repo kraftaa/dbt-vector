@@ -44,7 +44,7 @@ jobs:
         env:
           PYO3_PYTHON: python3
         run: |
-          python -m pip install --upgrade pip build
+          python -m pip install --upgrade pip setuptools wheel build
           ./scripts/build_wheel_with_binary.sh
 
       - name: Show built artifacts

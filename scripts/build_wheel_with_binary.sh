@@ -34,6 +34,7 @@ echo "[2/4] Cleaning previous dist artifacts..."
 rm -rf dist/
 
 echo "[3/4] Building Python wheel/sdist..."
+"$PYTHON_BIN" -m pip install --upgrade pip setuptools wheel build
 "$PYTHON_BIN" -m build --no-isolation
 
 echo "[4/4] Done. Artifacts in dist/"
