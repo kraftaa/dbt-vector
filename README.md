@@ -117,6 +117,29 @@ cp .env.vectorize.example .env.vectorize
 ```
 `bin/vectorize` auto-loads `.env.vectorize` if present. Use `VECTORIZE_ENV_FILE=/path/to/file` to load a different env file.
 
+Expected CLI output (example):
+```
+[vectorize] running dbt model vector_knowledge_base (provider=local, model=sentence-transformers/all-MiniLM-L6-v2)
+...
+Done. PASS=1 WARN=0 ERROR=0 SKIP=0 TOTAL=1
+[vectorize] generating embeddings via Rust into public.knowledge_base
+embedded 20 rows into public.knowledge_base
+[vectorize] done.
+```
+
+Quick verification in Postgres:
+```sql
+SELECT count(*) AS rows FROM public.knowledge_base;
+
+SELECT
+  doc_id,
+  (embedding::float4[])[1:8] AS first_8_dims,
+  source,
+  created_at
+FROM public.knowledge_base
+LIMIT 5;
+```
+
 ## Optional Docker Postgres
 
 Use this only if you want a disposable local pgvector instance:
