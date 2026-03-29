@@ -151,6 +151,11 @@ FROM public.knowledge_base
 LIMIT 5;
 ```
 
+Run dbt checks for incremental embeddings:
+```bash
+EMBED_DIMS=384 dbt test --profiles-dir . --project-dir . --select vector_knowledge_base_incremental
+```
+
 ## Optional Docker Postgres
 
 Use this only if you want a disposable local pgvector instance:

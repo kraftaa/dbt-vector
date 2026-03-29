@@ -73,7 +73,7 @@
         {%- endif -%}
       {%- endfor -%}
 
-      {%- call statement('upsert_delta_placeholders', fetch_result=False) -%}
+      {%- call statement('main', fetch_result=False) -%}
         insert into {{ target_relation }}
         (
           {{ adapter.quote(unique_key) }},

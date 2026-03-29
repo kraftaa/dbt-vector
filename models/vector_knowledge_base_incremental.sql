@@ -1,7 +1,7 @@
 {{ config(
     materialized='vector_index',
     vector_db='pgvector',
-    index_name='knowledge_base_incremental',
+    index_name='vector_knowledge_base_incremental',
     embedding_model=env_var('EMBED_MODEL', 'text-embedding-3-small'),
     unique_key='doc_id',
     text_column='text',
@@ -29,4 +29,3 @@ select
     source,
     created_at
 from {{ ref('staging_docs_extra') }}
-
