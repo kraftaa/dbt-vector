@@ -110,6 +110,16 @@ EMBED_PROVIDER=... EMBED_MODEL=... EMBED_DIMS=... \
 ./bin/vectorize --select vector_knowledge_base
 ```
 
+You can override runtime settings either via env vars or flags:
+```
+./bin/vectorize \
+  --select vector_knowledge_base_incremental \
+  --embed-provider local \
+  --embed-model sentence-transformers/all-MiniLM-L6-v2 \
+  --embed-dims 384 \
+  --embed-db-batch-size 500
+```
+
 Incremental variant (embed only new/changed rows):
 ```
 PGHOST=localhost PGPORT=5432 PGUSER=postgres PGDATABASE=postgres \

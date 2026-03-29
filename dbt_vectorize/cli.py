@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import os
 import shutil
 import subprocess
@@ -88,6 +89,22 @@ def _build_dbt_cmd(cwd: Path, argv: list[str]) -> tuple[list[str], dict[str, str
     return cmd, env, embed_provider, embed_model
 
 
+def _parse_vectorize_args(argv: list[str]) -> tuple[argparse.Namespace, list[str]]:
+    parser = argparse.ArgumentParser(
+        prog="dbt-vectorize",
+        add_help=True,
+        description="Run dbt model selection and then generate embeddings via Rust.",
+    )
+    parser.add_argument("--embed-db-batch-size", type=int)
+    parser.add_argument("--embed-dims", type=int)
+    parser.add_argument("--embed-provider")
+    parser.add_argument("--embed-model")
+    parser.add_argument("--embed-local-model-path")
+    parser.add_argument("--index-name")
+    parser.add_argument("--schema")
+    return parser.parse_known_args(argv)
+
+
 def _selected_model_from_args(argv: list[str], default: str) -> str:
     if not argv:
         return default
@@ -174,12 +191,28 @@ def _build_embed_env(cwd: Path) -> dict[str, str]:
 
 
 def main() -> int:
-    argv = sys.argv[1:]
+    parsed, dbt_args = _parse_vectorize_args(sys.argv[1:])
+
+    if parsed.embed_db_batch_size:
+        os.environ["EMBED_DB_BATCH_SIZE"] = str(parsed.embed_db_batch_size)
+    if parsed.embed_dims:
+        os.environ["EMBED_DIMS"] = str(parsed.embed_dims)
+    if parsed.embed_provider:
+        os.environ["EMBED_PROVIDER"] = parsed.embed_provider
+    if parsed.embed_model:
+        os.environ["EMBED_MODEL"] = parsed.embed_model
+    if parsed.embed_local_model_path:
+        os.environ["EMBED_LOCAL_MODEL_PATH"] = parsed.embed_local_model_path
+    if parsed.index_name:
+        os.environ["INDEX_NAME"] = parsed.index_name
+    if parsed.schema:
+        os.environ["SCHEMA"] = parsed.schema
+
     cwd = _resolve_cwd()
     select_model = os.environ.get("SELECT_MODEL", "vector_knowledge_base")
-    selected_model = _selected_model_from_args(argv, select_model)
+    selected_model = _selected_model_from_args(dbt_args, select_model)
 
-    dbt_cmd, dbt_env, provider, model = _build_dbt_cmd(cwd, argv)
+    dbt_cmd, dbt_env, provider, model = _build_dbt_cmd(cwd, dbt_args)
     print(f"[vectorize] running dbt model {selected_model} (provider={provider}, model={model})")
     dbt_proc = subprocess.run(dbt_cmd, cwd=str(cwd), env=dbt_env)
     if dbt_proc.returncode != 0:

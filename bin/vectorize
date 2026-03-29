@@ -29,9 +29,66 @@ PYTHON_BIN="${PYTHON_BIN:-python3}"
 EMBED_PROVIDER="${EMBED_PROVIDER:-local}"
 EMBED_MODEL="${EMBED_MODEL:-sentence-transformers/all-MiniLM-L6-v2}"
 
-# Forward explicit dbt args (e.g. --select model_name). If none provided,
-# default to SELECT_MODEL.
-RUN_ARGS=("$@")
+# Parse vectorize-specific flags and pass the rest through to dbt.
+PASSTHRU_ARGS=()
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --embed-db-batch-size)
+      export EMBED_DB_BATCH_SIZE="${2:-}"
+      shift 2
+      ;;
+    --embed-dims)
+      export EMBED_DIMS="${2:-}"
+      shift 2
+      ;;
+    --embed-provider)
+      EMBED_PROVIDER="${2:-}"
+      shift 2
+      ;;
+    --embed-model)
+      EMBED_MODEL="${2:-}"
+      shift 2
+      ;;
+    --embed-local-model-path)
+      export EMBED_LOCAL_MODEL_PATH="${2:-}"
+      shift 2
+      ;;
+    --index-name)
+      INDEX_NAME="${2:-}"
+      shift 2
+      ;;
+    --schema)
+      SCHEMA="${2:-}"
+      shift 2
+      ;;
+    --help)
+      cat <<'EOF'
+Usage: ./bin/vectorize [vectorize flags] [dbt run args]
+
+Vectorize flags:
+  --embed-db-batch-size N       DB read/update batch size for Rust embedder
+  --embed-dims N                embedding dimensions (must match model/table)
+  --embed-provider NAME         local | openai | bedrock
+  --embed-model NAME            embedding model id
+  --embed-local-model-path DIR  local ONNX model folder (model.onnx/tokenizer.json)
+  --index-name NAME             override target table/index name
+  --schema NAME                 override target schema
+
+Examples:
+  ./bin/vectorize --select vector_knowledge_base_incremental --embed-db-batch-size 500
+  ./bin/vectorize --embed-provider local --embed-model sentence-transformers/all-MiniLM-L6-v2 --embed-dims 384 --select vector_knowledge_base_incremental
+EOF
+      exit 0
+      ;;
+    *)
+      PASSTHRU_ARGS+=("$1")
+      shift
+      ;;
+  esac
+done
+
+# Forward explicit dbt args (e.g. --select model_name). If none provided, default to SELECT_MODEL.
+RUN_ARGS=("${PASSTHRU_ARGS[@]}")
 if [[ ${#RUN_ARGS[@]} -eq 0 ]]; then
   RUN_ARGS=(--select "${SELECT_MODEL}")
 fi
@@ -138,6 +195,7 @@ echo "[vectorize] generating embeddings via Rust into ${SCHEMA}.${INDEX_NAME}"
   SCHEMA="${SCHEMA}" INDEX_NAME="${INDEX_NAME}" \
   EMBED_PROVIDER="${EMBED_PROVIDER}" \
   EMBED_MODEL="${EMBED_MODEL}" EMBED_DIMS="${EMBED_DIMS:-1536}" \
+  EMBED_DB_BATCH_SIZE="${EMBED_DB_BATCH_SIZE:-1000}" \
   cargo run --quiet --bin pg_embedder --release --
 )
 
