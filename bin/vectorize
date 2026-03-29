@@ -29,6 +29,24 @@ PYTHON_BIN="${PYTHON_BIN:-python3}"
 EMBED_PROVIDER="${EMBED_PROVIDER:-local}"
 EMBED_MODEL="${EMBED_MODEL:-sentence-transformers/all-MiniLM-L6-v2}"
 
+# Forward explicit dbt args (e.g. --select model_name). If none provided,
+# default to SELECT_MODEL.
+RUN_ARGS=("$@")
+if [[ ${#RUN_ARGS[@]} -eq 0 ]]; then
+  RUN_ARGS=(--select "${SELECT_MODEL}")
+fi
+
+MODEL_SELECTOR="${SELECT_MODEL}"
+for ((i=0; i<${#RUN_ARGS[@]}; i++)); do
+  if [[ "${RUN_ARGS[i]}" == "--select" || "${RUN_ARGS[i]}" == "-s" ]]; then
+    if (( i + 1 < ${#RUN_ARGS[@]} )); then
+      MODEL_SELECTOR="${RUN_ARGS[i+1]}"
+    fi
+  fi
+done
+# Best-effort normalize: package.model -> model
+MODEL_NAME="${MODEL_SELECTOR##*.}"
+
 # If PG* vars are unset, pull them from profiles.yml (postgres output)
 if [[ -z "${PGHOST:-}" || -z "${PGPORT:-}" || -z "${PGUSER:-}" || -z "${PGDATABASE:-}" ]]; then
   if [[ -f "${PROFILE_FILE}" ]]; then
@@ -73,9 +91,41 @@ PY
   fi
 fi
 
-echo "[vectorize] running dbt model ${SELECT_MODEL} (provider=${EMBED_PROVIDER}, model=${EMBED_MODEL})"
+echo "[vectorize] running dbt model ${MODEL_NAME} (provider=${EMBED_PROVIDER}, model=${EMBED_MODEL})"
 EMBED_PROVIDER="${EMBED_PROVIDER}" EMBED_MODEL="${EMBED_MODEL}" \
-  "${DBT_CMD}" run --no-partial-parse --profiles-dir "${PROFILE_DIR}" --project-dir "${PROJECT_DIR}" --select "${SELECT_MODEL}"
+  "${DBT_CMD}" run --no-partial-parse --profiles-dir "${PROFILE_DIR}" --project-dir "${PROJECT_DIR}" "${RUN_ARGS[@]}"
+
+# If INDEX_NAME/SCHEMA are still defaults, infer from dbt manifest for selected model.
+if command -v "${PYTHON_BIN}" >/dev/null 2>&1; then
+  manifest_exports="$(
+    "${PYTHON_BIN}" - <<'PY' "${PROJECT_DIR}/target/manifest.json" "${MODEL_NAME}" "${INDEX_NAME}" "${SCHEMA}" 2>/dev/null || true
+import json, os, shlex, sys
+manifest_path, model_name, index_name, schema = sys.argv[1:5]
+if not os.path.exists(manifest_path):
+    raise SystemExit(0)
+with open(manifest_path, "r", encoding="utf-8") as f:
+    m = json.load(f)
+nodes = (m.get("nodes") or {}).values()
+node = None
+for n in nodes:
+    if n.get("resource_type") == "model" and n.get("name") == model_name:
+        node = n
+        break
+if not node:
+    raise SystemExit(0)
+cfg = node.get("config") or {}
+resolved_index = cfg.get("index_name") or node.get("alias") or node.get("name")
+resolved_schema = node.get("schema")
+if index_name == "knowledge_base" and resolved_index:
+    print(f"INDEX_NAME={shlex.quote(str(resolved_index))}")
+if schema == "public" and resolved_schema:
+    print(f"SCHEMA={shlex.quote(str(resolved_schema))}")
+PY
+  )"
+  if [[ -n "${manifest_exports}" ]]; then
+    eval "${manifest_exports}"
+  fi
+fi
 
 echo "[vectorize] generating embeddings via Rust into ${SCHEMA}.${INDEX_NAME}"
 (

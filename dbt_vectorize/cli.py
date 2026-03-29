@@ -4,6 +4,7 @@ import os
 import shutil
 import subprocess
 import sys
+import json
 from pathlib import Path
 
 import yaml
@@ -87,6 +88,40 @@ def _build_dbt_cmd(cwd: Path, argv: list[str]) -> tuple[list[str], dict[str, str
     return cmd, env, embed_provider, embed_model
 
 
+def _selected_model_from_args(argv: list[str], default: str) -> str:
+    if not argv:
+        return default
+    model = default
+    for i, arg in enumerate(argv):
+        if arg in ("--select", "-s") and i + 1 < len(argv):
+            model = argv[i + 1]
+    return model.split(".")[-1]
+
+
+def _infer_target_from_manifest(project_dir: Path, model_name: str, env: dict[str, str]) -> None:
+    manifest = project_dir / "target" / "manifest.json"
+    if not manifest.exists():
+        return
+    try:
+        data = json.loads(manifest.read_text(encoding="utf-8"))
+    except Exception:
+        return
+    nodes = (data.get("nodes") or {}).values()
+    node = next(
+        (n for n in nodes if n.get("resource_type") == "model" and n.get("name") == model_name),
+        None,
+    )
+    if not node:
+        return
+    cfg = node.get("config") or {}
+    index_name = cfg.get("index_name") or node.get("alias") or node.get("name")
+    schema = node.get("schema")
+    if env.get("INDEX_NAME", "knowledge_base") == "knowledge_base" and index_name:
+        env["INDEX_NAME"] = str(index_name)
+    if env.get("SCHEMA", "public") == "public" and schema:
+        env["SCHEMA"] = str(schema)
+
+
 def _build_embed_env(cwd: Path) -> dict[str, str]:
     env = os.environ.copy()
     profile_dir = env.get("PROFILE_DIR") or env.get("DBT_PROFILES_DIR") or str(cwd)
@@ -141,15 +176,19 @@ def _build_embed_env(cwd: Path) -> dict[str, str]:
 def main() -> int:
     argv = sys.argv[1:]
     cwd = _resolve_cwd()
+    select_model = os.environ.get("SELECT_MODEL", "vector_knowledge_base")
+    selected_model = _selected_model_from_args(argv, select_model)
 
     dbt_cmd, dbt_env, provider, model = _build_dbt_cmd(cwd, argv)
-    print(f"[vectorize] running dbt model selection (provider={provider}, model={model})")
+    print(f"[vectorize] running dbt model {selected_model} (provider={provider}, model={model})")
     dbt_proc = subprocess.run(dbt_cmd, cwd=str(cwd), env=dbt_env)
     if dbt_proc.returncode != 0:
         return dbt_proc.returncode
 
     embed_cmd, embed_cwd = _find_pg_embedder_cmd(cwd)
     embed_env = _build_embed_env(cwd)
+    project_dir = Path(os.environ.get("PROJECT_DIR", str(cwd))).expanduser().resolve()
+    _infer_target_from_manifest(project_dir, selected_model, embed_env)
     schema = embed_env.get("SCHEMA", "public")
     index_name = embed_env.get("INDEX_NAME", "knowledge_base")
     print(f"[vectorize] generating embeddings via Rust into {schema}.{index_name}")
