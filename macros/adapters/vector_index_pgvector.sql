@@ -19,6 +19,15 @@
     {%- do cols.append('processed_at timestamptz') -%}
 
     {%- if embed_incremental -%}
+      {%- call statement('idx_source_key', fetch_result=False) -%}
+        create index if not exists {{ source_relation.identifier }}__doc_id_idx
+        on {{ source_relation }} ({{ adapter.quote(unique_key) }});
+      {%- endcall -%}
+      {%- call statement('idx_source_updated', fetch_result=False) -%}
+        create index if not exists {{ source_relation.identifier }}__updated_at_idx
+        on {{ source_relation }} ({{ adapter.quote(updated_at_column) }});
+      {%- endcall -%}
+
       {%- call statement('create_target_if_missing', fetch_result=False) -%}
         create table if not exists {{ target_relation }} (
           {{ cols | join(',\n          ') }}
@@ -101,6 +110,15 @@
         on conflict ({{ adapter.quote(unique_key) }}) do update
         set {{ upsert_update_cols | join(', ') }};
       {%- endcall -%}
+
+      {%- call statement('idx_target_time', fetch_result=False) -%}
+        create index if not exists {{ target_relation.identifier }}__source_updated_at_idx
+        on {{ target_relation }} (source_updated_at);
+      {%- endcall -%}
+      {%- call statement('idx_target_embedding', fetch_result=False) -%}
+        create index if not exists {{ target_relation.identifier }}__embedding_idx
+        on {{ target_relation }} using ivfflat (embedding vector_cosine_ops) with (lists = 100);
+      {%- endcall -%}
     {%- else -%}
       {%- call statement('drop_target', fetch_result=False) -%}
         drop table if exists {{ target_relation }};
@@ -139,6 +157,15 @@
         from {{ source_relation }}
         where {{ adapter.quote(text_column) }} is not null
           and length(trim({{ adapter.quote(text_column) }})) > 0;
+      {%- endcall -%}
+
+      {%- call statement('idx_target_time', fetch_result=False) -%}
+        create index if not exists {{ target_relation.identifier }}__source_updated_at_idx
+        on {{ target_relation }} (source_updated_at);
+      {%- endcall -%}
+      {%- call statement('idx_target_embedding', fetch_result=False) -%}
+        create index if not exists {{ target_relation.identifier }}__embedding_idx
+        on {{ target_relation }} using ivfflat (embedding vector_cosine_ops) with (lists = 100);
       {%- endcall -%}
     {%- endif -%}
 

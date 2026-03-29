@@ -121,6 +121,11 @@ This model uses `embed_incremental=true` and only sends rows to the embedder whe
 - `created_at` (`updated_at_column`) is newer than `source_updated_at`, or
 - `text` changed.
 
+Large delta handling:
+- `pg_embedder` processes source rows in database batches (default `EMBED_DB_BATCH_SIZE=1000`).
+- Set `EMBED_DB_BATCH_SIZE` lower/higher to trade memory for throughput.
+- pgvector macro creates supporting indexes (key/timestamp/vector) on target for production use.
+
 Shortcut with env file:
 ```
 cp .env.vectorize.example .env.vectorize
