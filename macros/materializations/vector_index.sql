@@ -29,6 +29,7 @@
     {%- set text_column = config.get('text_column', 'text') -%}
     {%- set updated_at_column = config.get('updated_at_column', 'updated_at') -%}
     {%- set upsert_batch_size = config.get('upsert_batch_size', 500) -%}
+    {%- set embed_incremental = config.get('embed_incremental', false) -%}
 
     {%- set target_schema = this.schema -%}
     {%- set target_relation = adapter.Relation.create(
@@ -90,6 +91,7 @@
         text_column=text_column,
         updated_at_column=updated_at_column,
         upsert_batch_size=upsert_batch_size,
+        embed_incremental=embed_incremental,
         is_incremental=is_incremental()
       ) -%}
     {{ log("[dbt-vectors] passed source_relation=" ~ src_relation ~ " target_relation=" ~ target_relation, info=True) }}

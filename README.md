@@ -110,6 +110,17 @@ EMBED_PROVIDER=... EMBED_MODEL=... EMBED_DIMS=... \
 ./bin/vectorize --select vector_knowledge_base
 ```
 
+Incremental variant (embed only new/changed rows):
+```
+PGHOST=localhost PGPORT=5432 PGUSER=postgres PGDATABASE=postgres \
+EMBED_PROVIDER=... EMBED_MODEL=... EMBED_DIMS=... \
+./bin/vectorize --select vector_knowledge_base_incremental
+```
+This model uses `embed_incremental=true` and only sends rows to the embedder when:
+- `doc_id` is new, or
+- `created_at` (`updated_at_column`) is newer than `source_updated_at`, or
+- `text` changed.
+
 Shortcut with env file:
 ```
 cp .env.vectorize.example .env.vectorize
