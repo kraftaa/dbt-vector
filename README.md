@@ -1,23 +1,87 @@
-# dbt-vectors (prototype scaffold)
+# dbt-vectorize
 
-> Make vector indexes a first-class materialization in dbt. This repo is an MVP scaffold to prove the concept.
+Define and build vector indexes from dbt models, then query them with semantic search.
+
+## Quick example
+
+Define a dbt model:
+
+```sql
+{{ config(
+    materialized='vector_index',
+    vector_db='pgvector',
+    index_name='knowledge_base',
+    unique_key='doc_id',
+    text_column='text',
+    dimensions=1536
+) }}
+
+select
+  doc_id,
+  body as text,
+  source,
+  created_at
+from {{ ref('staging_docs') }}
+```
+
+Build the index:
+
+```bash
+dbt-vectorize build --select my_model
+```
+
+Search it:
+
+```bash
+dbt-vectorize search \
+  --select my_model \
+  --query "oauth callback issues" \
+  --top-k 5
+```
+
+## What it does
+
+- Define vectorized datasets directly in dbt models.
+- Generate embeddings using a Rust engine.
+- Store vectors in Postgres using pgvector.
+- Support incremental embedding (only new/updated rows).
+- Query semantic similarity via CLI.
+
+## How it works
+
+1. Define a dbt model with `materialized='vector_index'`.
+2. Run `dbt-vectorize build --select ...`.
+3. Run `dbt-vectorize search --select ... --query ...`.
+
+Under the hood:
+
+- dbt builds the source dataset.
+- embeddings are generated and upserted into pgvector.
+- search embeds the query and performs nearest-neighbor lookup in Postgres.
 
 ## Why
-- dbt today only materializes SQL artifacts (table, view, incremental, ephemeral).
-- Vector pipelines require SQL + embeddings + upsert to a vector DB; teams currently stitch that with ad-hoc external scripts.
-- A custom `vector_index` materialization can run inside `dbt build`, generating embeddings, handling incremental logic, and writing to pgvector/Pinecone/Qdrant.
 
-## What’s here
-- **dbt package skeleton** with a `vector_index` materialization and dispatchable macros (pgvector working).
-- **Rust embedder** (`rust/embedding_engine`) that can generate embeddings via OpenAI, Amazon Bedrock, or a local ONNX model (no Python needed).
-- **`dbt-vectorize` CLI** with subcommands:
-  - `dbt-vectorize build --select ...`
-  - `dbt-vectorize embed --index-name ... --schema ...` (embed only, skip dbt run)
-  - `dbt-vectorize search --select ... --query ...`
-  - `dbt-vectorize inspect --select ...`
-- Backward-compatible alias: `dbt-vectorize --select my_model` behaves like `dbt-vectorize build --select my_model`.
-- **`./bin/vectorize` runner** still works as a compatibility alias for build flows.
-- **Examples** to show how a model is defined and run.
+Embedding pipelines are usually split across dbt, Python scripts, and external jobs.
+
+`dbt-vectorize` keeps that workflow closer to dbt:
+
+- define once in dbt
+- build with one command
+- search using the same dataset
+
+This makes vector search feel like a natural extension of your data models.
+
+## Status
+
+Early but usable. Focused on Postgres + pgvector first.
+
+## Example output
+
+Top 3 results from `knowledge_base`:
+
+1. OAuth redirect failed due to invalid callback URL
+2. Callback mismatch error in OAuth flow
+3. Auth token expired during redirect
 
 ## Use via `packages.yml` (recommended for Jupyter/other dbt projects)
 
@@ -146,6 +210,38 @@ EMBED_PROVIDER=bedrock
 EMBED_MODEL=amazon.titan-embed-text-v2:0
 EMBED_DIMS=1024   # or 512/256 if you override
 ```
+
+### All environment variables
+
+You can set these in shell env vars or in `.env.vectorize` (see `.env.vectorize.example`).
+
+| Variable | Purpose | Default |
+|---|---|---|
+| `DBT` | dbt executable path | `dbt` |
+| `PROFILE_DIR` | dbt profiles directory | current dir |
+| `PROJECT_DIR` | dbt project directory | current dir |
+| `PROFILE` | dbt profile name | `default` |
+| `TARGET` | dbt target name | from profile |
+| `SELECT_MODEL` | default model selector (compat runner) | `vector_knowledge_base` |
+| `PGHOST` `PGPORT` `PGUSER` `PGPASSWORD` `PGDATABASE` | Postgres connection | `localhost:5432/postgres` |
+| `SCHEMA` | target schema | `public` |
+| `INDEX_NAME` | target index/table name | `knowledge_base` |
+| `EMBED_PROVIDER` | embedding provider (`local`/`openai`/`bedrock`) | `local` |
+| `EMBED_MODEL` | model identifier for provider | provider-specific |
+| `EMBED_DIMS` | vector dimensions (must match table/model) | `1536` |
+| `EMBED_LOCAL_MODEL_PATH` | local ONNX model dir (`model.onnx`, `tokenizer.json`) | unset |
+| `OPENAI_API_KEY` | OpenAI API key (required for `openai`) | unset |
+| `OPENAI_EMBED_URL` | OpenAI-compatible embeddings endpoint override | OpenAI default URL |
+| `EMBED_DB_BATCH_SIZE` | rows per DB read/write batch | `1000` |
+| `EMBED_MAX_BATCH` | texts per provider request/batch | `128` |
+| `EMBED_RETRIES` | retry attempts | `3` |
+| `EMBED_TIMEOUT_SECS` | provider request timeout seconds | `60` |
+| `EMBED_MAX_LEN` | local tokenizer max sequence length | `256` |
+| `EMBED_LIMIT` | debug cap on embedded rows | unset |
+| `EMBED_KEEP_SOURCE` | keep `__vector_src` after embedding (`1`/`true`) | `false` |
+| `EMBED_LOG_BATCHES` | log per-batch progress (`1`/`true`) | `false` |
+| `VECTOR_SEARCH_PROBES` | pgvector IVFFLAT probes for search | `10` |
+| `VECTOR_SEARCH_COLUMNS` | default result columns for search | `doc_id,text,source,created_at` |
 
 3) Run vectorization (dbt model + embedding upsert):
 ```
