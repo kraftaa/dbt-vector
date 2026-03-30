@@ -13,7 +13,7 @@
 logs/
 ml_model/
 ml_models/
-other/
+other/*
 .user.yml
 profiles.yml
 dist/

@@ -6,6 +6,16 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 VECTORIZE_ENV_FILE="${VECTORIZE_ENV_FILE:-${ROOT_DIR}/.env.vectorize}"
 
+MODE="build"
+if [[ $# -gt 0 ]]; then
+  case "$1" in
+    build|embed)
+      MODE="$1"
+      shift
+      ;;
+  esac
+fi
+
 # Load optional env file (KEY=VALUE lines) before applying defaults.
 if [[ -f "${VECTORIZE_ENV_FILE}" ]]; then
   set -a
@@ -22,20 +32,50 @@ INDEX_NAME="${INDEX_NAME:-knowledge_base}"
 SCHEMA="${SCHEMA:-public}"
 PROFILE_NAME="${PROFILE:-default}"
 TARGET_NAME="${TARGET:-}"
-PROFILE_FILE="${PROFILE_FILE:-${PROFILE_DIR}/profiles.yml}"
+PROFILE_FILE="${PROFILE_FILE:-}"
 PYTHON_BIN="${PYTHON_BIN:-python3}"
 
 # Embedding settings
 EMBED_PROVIDER="${EMBED_PROVIDER:-local}"
 EMBED_MODEL="${EMBED_MODEL:-sentence-transformers/all-MiniLM-L6-v2}"
 
-# Parse vectorize-specific flags and pass the rest through to dbt.
+# Parse vectorize-specific flags and pass the rest through to dbt (build mode).
 PASSTHRU_ARGS=()
+MODEL_SELECTOR="${SELECT_MODEL}"
+LIMIT_VALUE=""
+ALLOW_PARTIAL=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --select|-s)
+      MODEL_SELECTOR="${2:-}"
+      if [[ "${MODE}" == "build" ]]; then
+        PASSTHRU_ARGS+=("$1" "${2:-}")
+      fi
+      shift 2
+      ;;
     --embed-db-batch-size)
       export EMBED_DB_BATCH_SIZE="${2:-}"
       shift 2
+      ;;
+    --embed-max-batch)
+      export EMBED_MAX_BATCH="${2:-}"
+      shift 2
+      ;;
+    --limit)
+      LIMIT_VALUE="${2:-}"
+      shift 2
+      ;;
+    --allow-partial)
+      ALLOW_PARTIAL=1
+      shift
+      ;;
+    --keep-source)
+      export EMBED_KEEP_SOURCE="1"
+      shift
+      ;;
+    --verbose)
+      export EMBED_LOG_BATCHES="1"
+      shift
       ;;
     --embed-dims)
       export EMBED_DIMS="${2:-}"
@@ -53,6 +93,22 @@ while [[ $# -gt 0 ]]; do
       export EMBED_LOCAL_MODEL_PATH="${2:-}"
       shift 2
       ;;
+    --profiles-dir)
+      PROFILE_DIR="${2:-}"
+      shift 2
+      ;;
+    --project-dir)
+      PROJECT_DIR="${2:-}"
+      shift 2
+      ;;
+    --profile)
+      PROFILE_NAME="${2:-}"
+      shift 2
+      ;;
+    --target)
+      TARGET_NAME="${2:-}"
+      shift 2
+      ;;
     --index-name)
       INDEX_NAME="${2:-}"
       shift 2
@@ -63,44 +119,67 @@ while [[ $# -gt 0 ]]; do
       ;;
     --help)
       cat <<'EOF'
-Usage: ./bin/vectorize [vectorize flags] [dbt run args]
+Usage: ./bin/vectorize [build|embed] [vectorize flags] [dbt run args]
 
 Vectorize flags:
   --embed-db-batch-size N       DB read/update batch size for Rust embedder
+  --embed-max-batch N           provider request batch size for embedding calls
   --embed-dims N                embedding dimensions (must match model/table)
   --embed-provider NAME         local | openai | bedrock
   --embed-model NAME            embedding model id
   --embed-local-model-path DIR  local ONNX model folder (model.onnx/tokenizer.json)
   --index-name NAME             override target table/index name
   --schema NAME                 override target schema
+  --limit N                     embed only first N rows (debug; requires --allow-partial)
+  --allow-partial               confirm partial embedding writes when using --limit
+  --keep-source                 keep <index>__vector_src table after embedding
+  --verbose                     print embedder batch progress logs
+  --profiles-dir DIR            dbt profiles directory (for PG env fallback)
+  --project-dir DIR             dbt project directory (for manifest lookup)
+  --profile NAME                dbt profile name
+  --target NAME                 dbt target name
 
 Examples:
-  ./bin/vectorize --select vector_knowledge_base_incremental --embed-db-batch-size 500
-  ./bin/vectorize --embed-provider local --embed-model sentence-transformers/all-MiniLM-L6-v2 --embed-dims 384 --select vector_knowledge_base_incremental
+  ./bin/vectorize build --select vector_knowledge_base_incremental --embed-db-batch-size 500
+  ./bin/vectorize embed --index-name knowledge_base --schema public --embed-db-batch-size 500
 EOF
       exit 0
       ;;
     *)
-      PASSTHRU_ARGS+=("$1")
+      if [[ "${MODE}" == "build" ]]; then
+        PASSTHRU_ARGS+=("$1")
+      else
+        echo "Unknown argument for embed mode: $1" >&2
+        echo "Use --index-name/--schema/--select with embed mode." >&2
+        exit 2
+      fi
       shift
       ;;
   esac
 done
 
-# Forward explicit dbt args (e.g. --select model_name). If none provided, default to SELECT_MODEL.
-RUN_ARGS=("${PASSTHRU_ARGS[@]}")
-if [[ ${#RUN_ARGS[@]} -eq 0 ]]; then
-  RUN_ARGS=(--select "${SELECT_MODEL}")
+if [[ -z "${PROFILE_FILE}" ]]; then
+  PROFILE_FILE="${PROFILE_DIR}/profiles.yml"
 fi
 
-MODEL_SELECTOR="${SELECT_MODEL}"
-for ((i=0; i<${#RUN_ARGS[@]}; i++)); do
-  if [[ "${RUN_ARGS[i]}" == "--select" || "${RUN_ARGS[i]}" == "-s" ]]; then
-    if (( i + 1 < ${#RUN_ARGS[@]} )); then
-      MODEL_SELECTOR="${RUN_ARGS[i+1]}"
-    fi
+if [[ -n "${LIMIT_VALUE}" ]]; then
+  if [[ "${ALLOW_PARTIAL}" -ne 1 ]]; then
+    echo "--limit only applies to embedding writes and can leave partial placeholder rows." >&2
+    echo "Re-run with --allow-partial to confirm." >&2
+    exit 2
   fi
-done
+  export EMBED_LIMIT="${LIMIT_VALUE}"
+fi
+
+# Forward explicit dbt args (e.g. --select model_name). If none provided, default to SELECT_MODEL.
+RUN_ARGS=()
+if [[ "${MODE}" == "build" ]]; then
+  RUN_ARGS=("${PASSTHRU_ARGS[@]}")
+  if [[ ${#RUN_ARGS[@]} -eq 0 ]]; then
+    RUN_ARGS=(--select "${SELECT_MODEL}")
+    MODEL_SELECTOR="${SELECT_MODEL}"
+  fi
+fi
 # Best-effort normalize: package.model -> model
 MODEL_NAME="${MODEL_SELECTOR##*.}"
 
@@ -148,9 +227,21 @@ PY
   fi
 fi
 
-echo "[vectorize] running dbt model ${MODEL_NAME} (provider=${EMBED_PROVIDER}, model=${EMBED_MODEL})"
-EMBED_PROVIDER="${EMBED_PROVIDER}" EMBED_MODEL="${EMBED_MODEL}" \
-  "${DBT_CMD}" run --no-partial-parse --profiles-dir "${PROFILE_DIR}" --project-dir "${PROJECT_DIR}" "${RUN_ARGS[@]}"
+if [[ "${MODE}" == "build" ]]; then
+  DBT_PROFILE_ARGS=(--profiles-dir "${PROFILE_DIR}" --project-dir "${PROJECT_DIR}")
+  if [[ -n "${PROFILE_NAME}" ]]; then
+    DBT_PROFILE_ARGS+=(--profile "${PROFILE_NAME}")
+  fi
+  if [[ -n "${TARGET_NAME}" ]]; then
+    DBT_PROFILE_ARGS+=(--target "${TARGET_NAME}")
+  fi
+
+  echo "[vectorize] running dbt model ${MODEL_NAME} (provider=${EMBED_PROVIDER}, model=${EMBED_MODEL})"
+  EMBED_PROVIDER="${EMBED_PROVIDER}" EMBED_MODEL="${EMBED_MODEL}" \
+    "${DBT_CMD}" run --no-partial-parse "${DBT_PROFILE_ARGS[@]}" "${RUN_ARGS[@]}"
+else
+  echo "[vectorize] embed-only mode (provider=${EMBED_PROVIDER}, model=${EMBED_MODEL})"
+fi
 
 # If INDEX_NAME/SCHEMA are still defaults, infer from dbt manifest for selected model.
 if command -v "${PYTHON_BIN}" >/dev/null 2>&1; then

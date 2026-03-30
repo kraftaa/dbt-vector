@@ -14,21 +14,28 @@ fi
 
 cleanup() {
   rm -f "$BIN_DIR/pg_embedder" "$BIN_DIR/pg_embedder.exe"
+  rm -f "$BIN_DIR/pg_search" "$BIN_DIR/pg_search.exe"
 }
 trap cleanup EXIT
 
 echo "[1/4] Building Rust backend (release)..."
-cargo build --manifest-path rust/embedding_engine/Cargo.toml --release --bin pg_embedder
+cargo build --manifest-path rust/embedding_engine/Cargo.toml --release --bin pg_embedder --bin pg_search
 
-if [[ -f "$ROOT_DIR/rust/embedding_engine/target/release/pg_embedder" ]]; then
-  cp "$ROOT_DIR/rust/embedding_engine/target/release/pg_embedder" "$BIN_DIR/pg_embedder"
-  chmod +x "$BIN_DIR/pg_embedder"
-elif [[ -f "$ROOT_DIR/rust/embedding_engine/target/release/pg_embedder.exe" ]]; then
-  cp "$ROOT_DIR/rust/embedding_engine/target/release/pg_embedder.exe" "$BIN_DIR/pg_embedder.exe"
-else
-  echo "Could not find built pg_embedder binary in rust/embedding_engine/target/release" >&2
-  exit 1
-fi
+copy_bin() {
+  local name="$1"
+  if [[ -f "$ROOT_DIR/rust/embedding_engine/target/release/${name}" ]]; then
+    cp "$ROOT_DIR/rust/embedding_engine/target/release/${name}" "$BIN_DIR/${name}"
+    chmod +x "$BIN_DIR/${name}"
+  elif [[ -f "$ROOT_DIR/rust/embedding_engine/target/release/${name}.exe" ]]; then
+    cp "$ROOT_DIR/rust/embedding_engine/target/release/${name}.exe" "$BIN_DIR/${name}.exe"
+  else
+    echo "Could not find built ${name} binary in rust/embedding_engine/target/release" >&2
+    exit 1
+  fi
+}
+
+copy_bin pg_embedder
+copy_bin pg_search
 
 echo "[2/4] Cleaning previous dist artifacts..."
 rm -rf dist/

@@ -10,8 +10,52 @@
 ## What’s here
 - **dbt package skeleton** with a `vector_index` materialization and dispatchable macros (pgvector working).
 - **Rust embedder** (`rust/embedding_engine`) that can generate embeddings via OpenAI, Amazon Bedrock, or a local ONNX model (no Python needed).
-- **`./bin/vectorize` runner**: orchestrates `dbt run` for the model and then calls the Rust embedder to write embeddings into Postgres/pgvector.
+- **`dbt-vectorize` CLI** with subcommands:
+  - `dbt-vectorize build --select ...`
+  - `dbt-vectorize embed --index-name ... --schema ...` (embed only, skip dbt run)
+  - `dbt-vectorize search --select ... --query ...`
+  - `dbt-vectorize inspect --select ...`
+- Backward-compatible alias: `dbt-vectorize --select my_model` behaves like `dbt-vectorize build --select my_model`.
+- **`./bin/vectorize` runner** still works as a compatibility alias for build flows.
 - **Examples** to show how a model is defined and run.
+
+## Use via `packages.yml` (recommended for Jupyter/other dbt projects)
+
+You do not need to copy `macros/` manually.
+
+Fast path (one command inside your dbt project root):
+
+```bash
+dbt-vectorize init --project-dir . --revision v0.1.4
+```
+
+`init` updates/creates `packages.yml` and runs `dbt deps`.
+
+In your consumer dbt project, add `packages.yml`:
+
+```yaml
+packages:
+  - git: "https://github.com/kraftaa/dbt-vector.git"
+    revision: "v0.1.4"
+```
+
+Reference file in this repo: `examples/consumer/packages.yml`.
+
+Then install package macros/materializations:
+
+```bash
+dbt deps
+```
+
+If you already have `packages.yml`, `init` preserves existing package entries and only adds/updates the `dbt-vector` entry.
+
+After `dbt deps`, `materialized='vector_index'` is available in your models.
+
+Minimal files needed in Jupyter pod:
+- `dbt_project.yml`
+- `profiles.yml`
+- `models/*.sql` (your vector models)
+- `packages.yml` (snippet above)
 
 ## Prerequisites
 
@@ -71,7 +115,7 @@ from {{ ref('staging_documents') }}
 where is_active = true
 ```
 
-Running `./bin/vectorize --select vector_knowledge_base` should:
+Running `dbt-vectorize build --select vector_knowledge_base` should:
 - fetch incremental rows
 - generate embeddings via Rust engine
 - upsert to pgvector (or Pinecone/Qdrant via adapters)
@@ -107,12 +151,12 @@ EMBED_DIMS=1024   # or 512/256 if you override
 ```
 PGHOST=localhost PGPORT=5432 PGUSER=postgres PGDATABASE=postgres \
 EMBED_PROVIDER=... EMBED_MODEL=... EMBED_DIMS=... \
-./bin/vectorize --select vector_knowledge_base
+dbt-vectorize build --select vector_knowledge_base
 ```
 
 You can override runtime settings either via env vars or flags:
 ```
-./bin/vectorize \
+dbt-vectorize build \
   --select vector_knowledge_base_incremental \
   --embed-provider local \
   --embed-model sentence-transformers/all-MiniLM-L6-v2 \
@@ -124,7 +168,7 @@ Incremental variant (embed only new/changed rows):
 ```
 PGHOST=localhost PGPORT=5432 PGUSER=postgres PGDATABASE=postgres \
 EMBED_PROVIDER=... EMBED_MODEL=... EMBED_DIMS=... \
-./bin/vectorize --select vector_knowledge_base_incremental
+dbt-vectorize build --select vector_knowledge_base_incremental
 ```
 This model uses `embed_incremental=true` and only sends rows to the embedder when:
 - `doc_id` is new, or
@@ -142,6 +186,75 @@ cp .env.vectorize.example .env.vectorize
 ./bin/vectorize --select vector_knowledge_base
 ```
 `bin/vectorize` auto-loads `.env.vectorize` if present. Use `VECTORIZE_ENV_FILE=/path/to/file` to load a different env file.
+
+Search (semantic nearest-neighbor):
+```bash
+dbt-vectorize search \
+  --select vector_knowledge_base \
+  --query "oauth callback issues" \
+  --top-k 5 \
+  --format table \
+  --include-distance
+```
+
+Production search recipe:
+```bash
+DBT=/opt/homebrew/bin/dbt \
+EMBED_PROVIDER=local \
+EMBED_MODEL=sentence-transformers/all-MiniLM-L6-v2 \
+EMBED_LOCAL_MODEL_PATH=$PWD/ml_model \
+EMBED_DIMS=384 \
+VECTOR_SEARCH_PROBES=50 \
+dbt-vectorize search \
+  --select vector_knowledge_base_2000_varied \
+  --query "oauth callback issues" \
+  --top-k 5 \
+  --include-distance
+```
+
+Search tuning notes:
+- `--top-k`: how many nearest rows to return.
+- `VECTOR_SEARCH_PROBES`: pgvector IVFFLAT probe count (`10` default). Higher = better recall, slower query.
+- If IVFFLAT returns no candidates, search falls back to an exact scan automatically.
+- Use `--format json` for programmatic consumption.
+- `--columns doc_id,text,source,created_at` controls returned fields (must include `doc_id,text`).
+
+Inspect resolved model config:
+```bash
+dbt-vectorize inspect --select vector_knowledge_base
+```
+
+Embed-only rerun (no dbt run):
+```bash
+dbt-vectorize embed \
+  --index-name knowledge_base_2000_varied \
+  --schema public \
+  --embed-db-batch-size 250 \
+  --embed-max-batch 250 \
+  --verbose
+```
+Use this when `...__vector_src` already exists (e.g., after a prior `--keep-source` build).
+
+Verbose batch logging (example: 2000 rows in chunks of 250):
+```bash
+dbt-vectorize build \
+  --select vector_knowledge_base_2000 \
+  --embed-db-batch-size 250 \
+  --embed-max-batch 250 \
+  --verbose
+```
+Expected embedder logs:
+```text
+[pg_embedder] db batch 1 fetched 250 rows (limit=250, total_before=0)
+...
+[pg_embedder] db batch 8 fetched 250 rows (limit=250, total_before=1750)
+embedded 2000 rows into public.knowledge_base_2000
+```
+
+Build safety/debug flags:
+- `--limit N` embeds only the first `N` rows from `__vector_src` (debug only).
+- `--allow-partial` is required with `--limit` to avoid accidental partial indexes.
+- `--keep-source` keeps `...__vector_src` after embedding for inspection (default drops it).
 
 Expected CLI output (example):
 ```
@@ -194,7 +307,7 @@ python -m pip install dist/dbt_vectorize-*.whl
 
 CLI entrypoint after install:
 ```bash
-dbt-vectorize --select vector_knowledge_base
+dbt-vectorize build --select vector_knowledge_base
 ```
 
 CI release wheel build (macOS arm64 + Linux x86_64):

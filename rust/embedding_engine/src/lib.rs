@@ -6,6 +6,7 @@ use rand::{rngs::StdRng, Rng, SeedableRng};
 use reqwest::blocking::Client;
 use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION, CONTENT_TYPE};
 use serde::Deserialize;
+use std::collections::HashSet;
 use std::env;
 use std::ops::Deref;
 use std::path::PathBuf;
@@ -146,15 +147,18 @@ fn send_with_retry(
             )));
         }
 
-        let base = BASE_BACKOFF_MS.saturating_mul(2u64.saturating_pow(attempt as u32));
-        let jitter = rng.gen_range(0..=JITTER_MS);
-        let backoff = Duration::from_millis(base + jitter);
-        sleep(backoff);
+        sleep(retry_backoff(attempt, rng));
         attempt += 1;
     }
 }
 
-fn embed_batch_internal(
+fn retry_backoff(attempt: usize, rng: &mut StdRng) -> Duration {
+    let base = BASE_BACKOFF_MS.saturating_mul(2u64.saturating_pow(attempt as u32));
+    let jitter = rng.gen_range(0..=JITTER_MS);
+    Duration::from_millis(base + jitter)
+}
+
+fn embed_openai(
     texts: &[String],
     cfg: &Config,
     client: &Client,
@@ -185,7 +189,7 @@ fn embed_local(texts: &[String], cfg: &Config) -> Result<Vec<Vec<f32>>, EmbedErr
     embed_local_onnx(texts, cfg)
 }
 
-fn embed_local_onnx(texts: &[String], _cfg: &Config) -> Result<Vec<Vec<f32>>, EmbedError> {
+fn embed_local_onnx(texts: &[String], cfg: &Config) -> Result<Vec<Vec<f32>>, EmbedError> {
     // Expect a directory with model.onnx and tokenizer.json (HF export)
     let model_dir = env::var("EMBED_LOCAL_MODEL_PATH")
         .map(PathBuf::from)
@@ -215,24 +219,6 @@ fn embed_local_onnx(texts: &[String], _cfg: &Config) -> Result<Vec<Vec<f32>>, Em
         ..Default::default()
     }));
 
-    let encodings = tokenizer
-        .encode_batch(texts.iter().map(|s| s.as_str()).collect::<Vec<_>>(), true)
-        .map_err(|e| EmbedError::Local(format!("tokenize batch: {e}")))?;
-
-    let seq_len = max_len;
-    let batch = encodings.len();
-
-    let mut ids: Vec<i64> = Vec::with_capacity(batch * seq_len);
-    let mut mask: Vec<i64> = Vec::with_capacity(batch * seq_len);
-    for enc in &encodings {
-        let mut t = enc.get_ids().to_vec();
-        let mut m = enc.get_attention_mask().to_vec();
-        t.resize(seq_len, 0);
-        m.resize(seq_len, 0);
-        ids.extend(t.into_iter().map(|v| v as i64));
-        mask.extend(m.into_iter().map(|v| v as i64));
-    }
-
     let mut session =
         Session::builder().map_err(|e| EmbedError::Local(format!("ort session builder: {e}")))?;
     session = session
@@ -245,81 +231,113 @@ fn embed_local_onnx(texts: &[String], _cfg: &Config) -> Result<Vec<Vec<f32>>, Em
         .commit_from_file(model_path)
         .map_err(|e| EmbedError::Local(format!("ort session: {e}")))?;
 
-    let input_ids: Array2<i64> = Array2::from_shape_vec((batch, seq_len), ids)
-        .map_err(|e| EmbedError::Local(format!("ids reshape: {e}")))?;
-    let attention_mask: Array2<i64> = Array2::from_shape_vec((batch, seq_len), mask)
-        .map_err(|e| EmbedError::Local(format!("mask reshape: {e}")))?;
-    let token_type_ids: Array2<i64> = Array2::zeros((batch, seq_len));
-
-    let input_ids_val =
-        Value::from_array(input_ids).map_err(|e| EmbedError::Local(format!("value ids: {e}")))?;
-    let attention_mask_val = Value::from_array(attention_mask.clone())
-        .map_err(|e| EmbedError::Local(format!("value mask: {e}")))?;
-    let token_type_ids_val = Value::from_array(token_type_ids)
-        .map_err(|e| EmbedError::Local(format!("value token_type_ids: {e}")))?;
-
-    let inputs = ort::inputs! {
-        "input_ids" => input_ids_val,
-        "attention_mask" => attention_mask_val,
-        "token_type_ids" => token_type_ids_val
-    };
-
-    let first_name = {
-        let outputs = session.outputs();
-        outputs
-            .first()
-            .ok_or_else(|| EmbedError::Local("no outputs in model".into()))?
-            .name()
-            .to_string()
-    };
-
-    let outputs = session
-        .run(inputs)
-        .map_err(|e| EmbedError::Local(format!("ort run: {e}")))?;
-
-    // Expect first output: [batch, seq, hidden]
-    let output = outputs
-        .get(first_name.as_str())
-        .ok_or_else(|| EmbedError::Local("no output tensor".into()))?;
-    let (shape, data) = output
-        .try_extract_tensor::<f32>()
-        .map_err(|e| EmbedError::Local(format!("extract tensor: {e}")))?;
-    let dims: &[i64] = shape.deref();
-    if dims.len() != 3 {
-        return Err(EmbedError::Local(format!(
-            "expected 3D output, got shape {:?}",
-            dims
-        )));
-    }
-    let batch_dim = dims[0] as usize;
-    let seq_len_dim = dims[1] as usize;
-    let hidden = dims[2] as usize;
-
-    // data is laid out [batch][seq][hidden] contiguous
-    // mean pooling with attention mask
-    let mut results = Vec::with_capacity(batch_dim);
-    for b in 0..batch_dim {
-        let mut sum = vec![0f32; hidden];
-        let mut count = 0f32;
-        for t in 0..seq_len_dim {
-            if attention_mask[(b, t)] == 0 {
-                continue;
-            }
-            count += 1.0;
-            for (h, slot) in sum.iter_mut().enumerate().take(hidden) {
-                let idx = b * seq_len_dim * hidden + t * hidden + h;
-                *slot += data[idx];
-            }
-        }
-        if count > 0.0 {
-            for v in sum.iter_mut() {
-                *v /= count;
-            }
-        }
-        results.push(sum);
+    let input_names: HashSet<String> = session
+        .inputs()
+        .iter()
+        .map(|out| out.name().to_string())
+        .collect();
+    if !input_names.contains("input_ids") {
+        return Err(EmbedError::Local(
+            "model is missing required input 'input_ids'".to_string(),
+        ));
     }
 
-    Ok(results)
+    let first_name = session
+        .outputs()
+        .first()
+        .ok_or_else(|| EmbedError::Local("no outputs in model".into()))?
+        .name()
+        .to_string();
+
+    let mut all_results: Vec<Vec<f32>> = Vec::with_capacity(texts.len());
+    for chunk in texts.chunks(cfg.max_batch) {
+        let encodings = tokenizer
+            .encode_batch(chunk.iter().map(|s| s.as_str()).collect::<Vec<_>>(), true)
+            .map_err(|e| EmbedError::Local(format!("tokenize batch: {e}")))?;
+
+        let seq_len = max_len;
+        let batch = encodings.len();
+
+        let mut ids: Vec<i64> = Vec::with_capacity(batch * seq_len);
+        let mut mask: Vec<i64> = Vec::with_capacity(batch * seq_len);
+        for enc in &encodings {
+            let mut t = enc.get_ids().to_vec();
+            let mut m = enc.get_attention_mask().to_vec();
+            t.resize(seq_len, 0);
+            m.resize(seq_len, 0);
+            ids.extend(t.into_iter().map(|v| v as i64));
+            mask.extend(m.into_iter().map(|v| v as i64));
+        }
+
+        let input_ids: Array2<i64> = Array2::from_shape_vec((batch, seq_len), ids)
+            .map_err(|e| EmbedError::Local(format!("ids reshape: {e}")))?;
+        let attention_mask: Array2<i64> = Array2::from_shape_vec((batch, seq_len), mask)
+            .map_err(|e| EmbedError::Local(format!("mask reshape: {e}")))?;
+        let token_type_ids: Array2<i64> = Array2::zeros((batch, seq_len));
+
+        let input_ids_val = Value::from_array(input_ids)
+            .map_err(|e| EmbedError::Local(format!("value ids: {e}")))?;
+        let attention_mask_val = Value::from_array(attention_mask.clone())
+            .map_err(|e| EmbedError::Local(format!("value mask: {e}")))?;
+        let token_type_ids_val = Value::from_array(token_type_ids)
+            .map_err(|e| EmbedError::Local(format!("value token_type_ids: {e}")))?;
+
+        let mut inputs: Vec<(String, Value)> = Vec::with_capacity(3);
+        inputs.push(("input_ids".to_string(), input_ids_val.into()));
+        if input_names.contains("attention_mask") {
+            inputs.push(("attention_mask".to_string(), attention_mask_val.into()));
+        }
+        if input_names.contains("token_type_ids") {
+            inputs.push(("token_type_ids".to_string(), token_type_ids_val.into()));
+        }
+
+        let outputs = session
+            .run(inputs)
+            .map_err(|e| EmbedError::Local(format!("ort run: {e}")))?;
+
+        // Expect first output: [batch, seq, hidden]
+        let output = outputs
+            .get(first_name.as_str())
+            .ok_or_else(|| EmbedError::Local("no output tensor".into()))?;
+        let (shape, data) = output
+            .try_extract_tensor::<f32>()
+            .map_err(|e| EmbedError::Local(format!("extract tensor: {e}")))?;
+        let dims: &[i64] = shape.deref();
+        if dims.len() != 3 {
+            return Err(EmbedError::Local(format!(
+                "expected 3D output, got shape {:?}",
+                dims
+            )));
+        }
+        let batch_dim = dims[0] as usize;
+        let seq_len_dim = dims[1] as usize;
+        let hidden = dims[2] as usize;
+
+        // data is laid out [batch][seq][hidden] contiguous
+        // mean pooling with attention mask
+        for b in 0..batch_dim {
+            let mut sum = vec![0f32; hidden];
+            let mut count = 0f32;
+            for t in 0..seq_len_dim {
+                if attention_mask[(b, t)] == 0 {
+                    continue;
+                }
+                count += 1.0;
+                for (h, slot) in sum.iter_mut().enumerate().take(hidden) {
+                    let idx = b * seq_len_dim * hidden + t * hidden + h;
+                    *slot += data[idx];
+                }
+            }
+            if count > 0.0 {
+                for v in &mut sum {
+                    *v /= count;
+                }
+            }
+            all_results.push(sum);
+        }
+    }
+
+    Ok(all_results)
 }
 
 fn embed_bedrock(texts: &[String], cfg: &Config) -> Result<Vec<Vec<f32>>, EmbedError> {
@@ -332,33 +350,64 @@ fn embed_bedrock(texts: &[String], cfg: &Config) -> Result<Vec<Vec<f32>>, EmbedE
         let shared_config = aws_config::load_defaults(BehaviorVersion::latest()).await;
         let client = aws_sdk_bedrockruntime::Client::new(&shared_config);
         let mut out = Vec::with_capacity(texts.len());
-        for t in texts {
-            let body = serde_json::json!({ "inputText": t });
-            let resp = client
-                .invoke_model()
-                .model_id(&cfg.model)
-                .content_type("application/json")
-                .accept("application/json")
-                .body(Blob::new(body.to_string()))
-                .send()
-                .await
-                .map_err(|e| EmbedError::Http(e.to_string()))?;
-            let bytes = resp.body.into_inner();
-            let parsed: serde_json::Value =
-                serde_json::from_slice(&bytes).map_err(|e| EmbedError::Parse(e.to_string()))?;
-            let embed_arr = parsed
-                .get("embedding")
-                .and_then(|v| v.as_array())
-                .ok_or_else(|| EmbedError::Parse("missing embedding array".to_string()))?;
-            let vecf: Vec<f32> = embed_arr
-                .iter()
-                .filter_map(|v| v.as_f64())
-                .map(|v| v as f32)
-                .collect();
-            out.push(vecf);
+        let mut rng = StdRng::from_entropy();
+        for chunk in texts.chunks(cfg.max_batch) {
+            for t in chunk {
+                let mut attempt = 0;
+                loop {
+                    let body = serde_json::json!({ "inputText": t });
+                    let response = client
+                        .invoke_model()
+                        .model_id(&cfg.model)
+                        .content_type("application/json")
+                        .accept("application/json")
+                        .body(Blob::new(body.to_string()))
+                        .send()
+                        .await;
+
+                    match response {
+                        Ok(resp) => {
+                            let bytes = resp.body.into_inner();
+                            let parsed: serde_json::Value = serde_json::from_slice(&bytes)
+                                .map_err(|e| EmbedError::Parse(e.to_string()))?;
+                            let embed_arr = parsed
+                                .get("embedding")
+                                .and_then(|v| v.as_array())
+                                .ok_or_else(|| {
+                                    EmbedError::Parse("missing embedding array".to_string())
+                                })?;
+                            let vecf: Vec<f32> = embed_arr
+                                .iter()
+                                .filter_map(|v| v.as_f64())
+                                .map(|v| v as f32)
+                                .collect();
+                            out.push(vecf);
+                            break;
+                        }
+                        Err(e) => {
+                            let err_msg = e.to_string();
+                            if attempt + 1 >= cfg.retries || !is_retryable_bedrock_error(&err_msg) {
+                                return Err(EmbedError::Http(err_msg));
+                            }
+                            sleep(retry_backoff(attempt, &mut rng));
+                            attempt += 1;
+                        }
+                    }
+                }
+            }
         }
         Ok(out)
     })
+}
+
+fn is_retryable_bedrock_error(err: &str) -> bool {
+    let s = err.to_lowercase();
+    s.contains("throttl")
+        || s.contains("too many requests")
+        || s.contains("service unavailable")
+        || s.contains("timeout")
+        || s.contains("internalserver")
+        || s.contains("temporar")
 }
 
 /// Generate embeddings (OpenAI/Bedrock/local ONNX).
@@ -370,7 +419,7 @@ pub fn embed_batch(texts: Vec<String>, model: Option<String>) -> Result<Vec<Vec<
         Provider::OpenAi => {
             let api_key = env::var("OPENAI_API_KEY").map_err(|_| EmbedError::MissingApiKey)?;
             let client = http_client(&api_key, cfg.timeout_secs)?;
-            embed_batch_internal(&texts, &cfg, &client)
+            embed_openai(&texts, &cfg, &client)
         }
     }
 }
