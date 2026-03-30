@@ -26,7 +26,7 @@ You do not need to copy `macros/` manually.
 Fast path (one command inside your dbt project root):
 
 ```bash
-dbt-vectorize init --project-dir . --revision v0.1.4
+dbt-vectorize init --project-dir . --revision v0.1.5
 ```
 
 `init` updates/creates `packages.yml` and runs `dbt deps`.
@@ -36,7 +36,7 @@ In your consumer dbt project, add `packages.yml`:
 ```yaml
 packages:
   - git: "https://github.com/kraftaa/dbt-vector.git"
-    revision: "v0.1.4"
+    revision: "v0.1.5"
 ```
 
 Reference file in this repo: `examples/consumer/packages.yml`.
