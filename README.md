@@ -1,6 +1,7 @@
 # dbt-vectorize
 
-Define and build vector indexes from dbt models, then query them with semantic search.
+Turn dbt models into pgvector-backed semantic indexes.
+Build embeddings from dbt models and query them with one command.
 
 ## Quick example
 
@@ -30,7 +31,7 @@ Build the index:
 dbt-vectorize build --select my_model
 ```
 
-Search it:
+Search embeds the query and returns the closest rows from Postgres using pgvector.:
 
 ```bash
 dbt-vectorize search \
@@ -39,13 +40,25 @@ dbt-vectorize search \
   --top-k 5
 ```
 
+## Example output
+
+Top 3 results from `knowledge_base`:
+
+1. OAuth redirect failed due to invalid callback URL
+2. Callback mismatch error in OAuth flow
+3. Auth token expired during redirect
+
 ## What it does
 
-- Define vectorized datasets directly in dbt models.
-- Generate embeddings using a Rust engine.
-- Store vectors in Postgres using pgvector.
-- Support incremental embedding (only new/updated rows).
-- Query semantic similarity via CLI.
+- Define vectorized datasets directly in dbt models
+- Generate embeddings (Rust, no Python required)
+- Store vectors in Postgres using pgvector
+- Support incremental embedding (only new/updated rows)
+- Search data using semantic similarity from CLI
+
+Conceptually:
+
+dbt model → dbt-vectorize → Postgres (pgvector) → search
 
 ## How it works
 
@@ -74,14 +87,6 @@ This makes vector search feel like a natural extension of your data models.
 ## Status
 
 Early but usable. Focused on Postgres + pgvector first.
-
-## Example output
-
-Top 3 results from `knowledge_base`:
-
-1. OAuth redirect failed due to invalid callback URL
-2. Callback mismatch error in OAuth flow
-3. Auth token expired during redirect
 
 ## Use via `packages.yml` (recommended for Jupyter/other dbt projects)
 
