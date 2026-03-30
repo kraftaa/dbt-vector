@@ -1,3 +1,5 @@
+[![Release](https://img.shields.io/github/v/release/kraftaa/dbt-vector)](https://github.com/kraftaa/dbt-vector/releases)
+
 # dbt-vectorize
 
 Turn dbt models into pgvector-backed semantic indexes.
