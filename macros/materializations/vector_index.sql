@@ -104,13 +104,16 @@
     -- Optional: emit metrics table/logging (placeholder)
     {{ log("[dbt-vectorize] run result: " ~ run_result, info=True) }}
 
-    -- Step 3: clean up temp relation
-    {%- if env_var('EMBED_PROVIDER', '') | lower != 'local' -%}
+    -- Step 3: keep temp relation for embedder phase.
+    -- pg_embedder is responsible for dropping it after embeddings are written
+    -- unless EMBED_KEEP_SOURCE is enabled.
+    {%- if env_var('DBT_VECTORIZE_DROP_SOURCE_IN_DBT', '0') | lower in ['1', 'true', 'yes', 'on'] -%}
       {%- call statement('drop_tmp', fetch_result=False) -%}
         drop table if exists {{ tmp_relation }};
       {%- endcall -%}
+      {{ log('[dbt-vectorize] dropped temp source table in dbt phase (DBT_VECTORIZE_DROP_SOURCE_IN_DBT enabled)', info=True) }}
     {%- else -%}
-      {{ log('[dbt-vectorize] keeping temp source table for local embedding provider', info=True) }}
+      {{ log('[dbt-vectorize] keeping temp source table for embedder phase', info=True) }}
     {%- endif -%}
 
     {# Explicitly commit so a later adapter-issued ROLLBACK doesn't undo the work #}

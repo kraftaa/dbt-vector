@@ -97,7 +97,7 @@ You do not need to copy `macros/` manually.
 Fast path (one command inside your dbt project root):
 
 ```bash
-dbt-vectorize init --project-dir . --revision v0.1.6
+dbt-vectorize init --project-dir . --revision v0.1.7
 ```
 
 `init` updates/creates `packages.yml` and runs `dbt deps`.
@@ -107,7 +107,7 @@ In your consumer dbt project, add `packages.yml`:
 ```yaml
 packages:
   - git: "https://github.com/kraftaa/dbt-vector.git"
-    revision: "v0.1.6"
+    revision: "v0.1.7"
 ```
 
 Reference file in this repo: `examples/consumer/packages.yml`.
@@ -247,6 +247,7 @@ You can set these in shell env vars or in `.env.vectorize` (see `.env.vectorize.
 | `EMBED_LIMIT` | debug cap on embedded rows | unset |
 | `EMBED_KEEP_SOURCE` | keep `__vector_src` after embedding (`1`/`true`) | `false` |
 | `EMBED_LOG_BATCHES` | log per-batch progress (`1`/`true`) | `false` |
+| `DBT_VECTORIZE_DROP_SOURCE_IN_DBT` | force dropping `__vector_src` in dbt phase (normally kept for embedder) | `0` |
 | `VECTOR_SEARCH_PROBES` | pgvector IVFFLAT probes for search | `10` |
 | `VECTOR_SEARCH_COLUMNS` | default result columns for search | `doc_id,text,source,created_at` |
 
