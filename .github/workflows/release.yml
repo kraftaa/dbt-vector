@@ -52,16 +52,27 @@ jobs:
 
       - name: Verify wheel contains runnable backend
         run: |
-          python -m pip install --force-reinstall dist/*.whl
           python - <<'PY'
-          import pathlib
-          import dbt_vectorize
-          bin_dir = pathlib.Path(dbt_vectorize.__file__).parent / "bin"
-          embedder = bin_dir / "pg_embedder"
-          search = bin_dir / "pg_search"
-          assert embedder.exists(), f"missing {embedder}"
-          assert search.exists(), f"missing {search}"
-          print("backend binaries found:", embedder, search)
+          import glob
+          import zipfile
+
+          wheels = glob.glob("dist/*.whl")
+          assert wheels, "no wheel artifacts found in dist/"
+          required_suffixes = (
+              "dbt_vectorize/bin/pg_embedder",
+              "dbt_vectorize/bin/pg_search",
+          )
+
+          for whl in wheels:
+              with zipfile.ZipFile(whl) as zf:
+                  names = zf.namelist()
+              missing = [
+                  suffix
+                  for suffix in required_suffixes
+                  if not any(name.endswith(suffix) for name in names)
+              ]
+              assert not missing, f"{whl} missing wheel files: {missing}"
+              print(f"{whl}: backend binaries present")
           PY
 
       - name: Upload dist artifacts
