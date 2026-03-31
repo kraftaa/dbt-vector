@@ -1,18 +1,24 @@
-name: dbt_vectors
+name: dbt_vectorize
 version: 0.0.1
 config-version: 2
 
 # Expose macros/materializations to downstream projects via packages.yml
 macro-paths: ["macros"]
 seed-paths: ["data"]
+model-paths: ["models"]
 
 # Minimal profile stub for local dev; downstream projects override profile/target.
 profile: default
 
 models:
-  dbt_vectors:
-    +materialized: table
+  +enabled: false
+
+seeds:
+  +enabled: false
 
 vars:
+  dbt_vectorize:
+    default_vector_db: pgvector
+  # Backward-compatible legacy namespace.
   dbt_vectors:
     default_vector_db: pgvector

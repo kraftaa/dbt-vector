@@ -19,7 +19,12 @@
         upsert_batch_size: 500
     #}
 
-    {%- set vector_db = config.get('vector_db', var('dbt_vectors', {}).get('default_vector_db', 'pgvector')) -%}
+    {%- set vector_db = config.get('vector_db',
+        var('dbt_vectorize', {}).get(
+          'default_vector_db',
+          var('dbt_vectors', {}).get('default_vector_db', 'pgvector')
+        )
+      ) -%}
     {%- set index_name = config.get('index_name', this.identifier) -%}
     {%- set unique_key = (config.get('unique_key') or 'id') -%}
     {%- set dimensions = config.get('dimensions') -%}
@@ -46,7 +51,7 @@
       ) -%}
     {%- set src_relation = tmp_relation -%}
 
-    {{ log("[dbt-vectors] materializing vector_index => " ~ target_relation, info=True) }}
+    {{ log("[dbt-vectorize] materializing vector_index => " ~ target_relation, info=True) }}
 
     -- Clean up any leftover temp relation from previous runs
     {%- call statement('drop_tmp_pre', fetch_result=False, auto_begin=True) -%}
@@ -61,25 +66,25 @@
     {%- set col_probe = run_query("select column_name from information_schema.columns where table_schema = '" ~ tmp_relation.schema ~ "' and table_name = '" ~ tmp_relation.identifier ~ "' order by ordinal_position") -%}
     {%- if col_probe is not none -%}
       {%- set _src_cols = col_probe.rows | map(attribute=0) | list -%}
-      {{ log("[dbt-vectors] source columns: " ~ (_src_cols | join(', ')), info=True) }}
+      {{ log("[dbt-vectorize] source columns: " ~ (_src_cols | join(', ')), info=True) }}
       {%- if text_column not in _src_cols -%}
         {%- if 'text' in _src_cols -%}
-          {{ log("[dbt-vectors] overriding text_column to 'text' (matched existing column)", info=True) }}
+          {{ log("[dbt-vectorize] overriding text_column to 'text' (matched existing column)", info=True) }}
           {%- set text_column = 'text' -%}
         {%- elif 'body' in _src_cols -%}
-          {{ log("[dbt-vectors] overriding text_column to 'body' (matched existing column)", info=True) }}
+          {{ log("[dbt-vectorize] overriding text_column to 'body' (matched existing column)", info=True) }}
           {%- set text_column = 'body' -%}
         {%- else -%}
           {{ exceptions.raise_compiler_error("text_column '" ~ text_column ~ "' not found in source columns: " ~ (_src_cols | join(', '))) }}
         {%- endif -%}
       {%- endif -%}
     {%- else -%}
-      {{ log("[dbt-vectors] source column probe returned none", info=True) }}
+      {{ log("[dbt-vectorize] source column probe returned none", info=True) }}
     {%- endif -%}
 
     -- Step 2: call adapter-specific runner to embed + upsert
-    {{ log("[dbt-vectors] about to dispatch src=" ~ src_relation ~ " target=" ~ target_relation, info=True) }}
-    {%- set run_result = adapter.dispatch('vector_index_run', 'dbt_vectors')(
+    {{ log("[dbt-vectorize] about to dispatch src=" ~ src_relation ~ " target=" ~ target_relation, info=True) }}
+    {%- set run_result = adapter.dispatch('vector_index_run', 'dbt_vectorize')(
         vector_db=vector_db,
         source_relation=src_relation,
         target_relation=target_relation,
@@ -94,10 +99,10 @@
         embed_incremental=embed_incremental,
         is_incremental=is_incremental()
       ) -%}
-    {{ log("[dbt-vectors] passed source_relation=" ~ src_relation ~ " target_relation=" ~ target_relation, info=True) }}
+    {{ log("[dbt-vectorize] passed source_relation=" ~ src_relation ~ " target_relation=" ~ target_relation, info=True) }}
 
     -- Optional: emit metrics table/logging (placeholder)
-    {{ log("[dbt-vectors] run result: " ~ run_result, info=True) }}
+    {{ log("[dbt-vectorize] run result: " ~ run_result, info=True) }}
 
     -- Step 3: clean up temp relation
     {%- if env_var('EMBED_PROVIDER', '') | lower != 'local' -%}
@@ -105,7 +110,7 @@
         drop table if exists {{ tmp_relation }};
       {%- endcall -%}
     {%- else -%}
-      {{ log('[dbt-vectors] keeping temp source table for local embedding provider', info=True) }}
+      {{ log('[dbt-vectorize] keeping temp source table for local embedding provider', info=True) }}
     {%- endif -%}
 
     {# Explicitly commit so a later adapter-issued ROLLBACK doesn't undo the work #}
