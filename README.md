@@ -1,4 +1,4 @@
-[![Release](https://img.shields.io/github/v/release/kraftaa/dbt-vector)](https://github.com/kraftaa/dbt-vector/releases)
+[![Release](https://img.shields.io/github/v/release/kraftaa/dbt-vector?cacheSeconds=60)](https://github.com/kraftaa/dbt-vector/releases)
 
 # dbt-vectorize
 
