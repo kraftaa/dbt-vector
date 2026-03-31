@@ -291,6 +291,34 @@ cp .env.vectorize.example .env.vectorize
 ```
 `bin/vectorize` auto-loads `.env.vectorize` if present. Use `VECTORIZE_ENV_FILE=/path/to/file` to load a different env file.
 
+CLI with project env file (recommended):
+```bash
+# in your dbt project root
+cat > .env.vectorize <<'EOF'
+EMBED_PROVIDER=local
+EMBED_MODEL=sentence-transformers/all-MiniLM-L6-v2
+EMBED_LOCAL_MODEL_PATH=/path/to/ml_model
+EMBED_DIMS=384
+
+PGHOST=postgres-test.datascience.svc.cluster.local
+PGPORT=5432
+PGUSER=vectorize
+PGPASSWORD=vectorize
+PGDATABASE=vectorize
+SCHEMA=public
+EOF
+
+set -a
+source .env.vectorize
+set +a
+```
+
+Now you can run without repeating provider/DB env vars:
+```bash
+dbt-vectorize build --select vector_knowledge_base --project-dir . --profiles-dir .
+dbt-vectorize search --select vector_knowledge_base --query "oauth callback issues" --top-k 5 --include-distance --project-dir . --profiles-dir .
+```
+
 Search (semantic nearest-neighbor):
 ```bash
 dbt-vectorize search \
