@@ -1,4 +1,4 @@
-from setuptools import setup
+from setuptools import Distribution, setup
 
 try:
     from setuptools.command.bdist_wheel import bdist_wheel as _bdist_wheel
@@ -10,6 +10,12 @@ except Exception:
 
 
 if _bdist_wheel is not None:
+    class BinaryDistribution(Distribution):
+        # Ensure wheel is treated as platform-specific (platlib), not purelib.
+        def has_ext_modules(self):
+            return True
+
+
     class bdist_wheel(_bdist_wheel):
         # Force platform wheels because we bundle a native Rust binary.
         def finalize_options(self):
@@ -22,6 +28,6 @@ if _bdist_wheel is not None:
             return "py3", "none", plat
 
 
-    setup(cmdclass={"bdist_wheel": bdist_wheel})
+    setup(cmdclass={"bdist_wheel": bdist_wheel}, distclass=BinaryDistribution)
 else:
     setup()

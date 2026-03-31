@@ -38,7 +38,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends python3-dev pkg-config libssl-dev build-essential
+          sudo apt-get install -y --no-install-recommends python3-dev pkg-config libssl-dev build-essential patchelf
 
       - name: Build wheel and sdist
         env:
@@ -46,6 +46,15 @@ jobs:
         run: |
           python -m pip install --upgrade pip setuptools wheel build
           ./scripts/build_wheel_with_binary.sh
+
+      - name: Repair Linux wheel for PyPI (manylinux tag)
+        if: runner.os == 'Linux'
+        run: |
+          python -m pip install --upgrade auditwheel
+          mkdir -p wheelhouse
+          auditwheel repair dist/*.whl -w wheelhouse
+          rm -f dist/*.whl
+          mv wheelhouse/*.whl dist/
 
       - name: Show built artifacts
         run: ls -lh dist
